@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -16,17 +16,15 @@ import {
   User,
   X,
   XCircle,
+  Loader2,
+  Navigation,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { customerProducts, customerShops } from "../Customer/CustomerData";
-
-const readOrders = () => {
-  try {
-    return JSON.parse(localStorage.getItem("nearGoOrders") || "[]");
-  } catch {
-    return [];
-  }
-};
+import {
+  getCustomerReservations,
+  updateOrderStatus,
+} from "../services/marketplaceService";
 
 const statusConfig = {
   Pending: { label: "Pending", tone: "amber", icon: Clock3, description: "Waiting for the shop to accept" },
@@ -48,13 +46,42 @@ const tabs = [
 
 const CustomerOrders = () => {
   const navigate = useNavigate();
-  const [orders, setOrders] = useState(readOrders);
+  const [orders, setOrders] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("All");
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState(null);
 
+  const fetchOrders = async () => {
+    try {
+      const liveOrders = await getCustomerReservations();
+      setOrders(liveOrders);
+    } catch (err) {
+      console.error("Failed to load customer orders:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchOrders();
+  }, []);
+
   const getProduct = (order) => customerProducts.find((item) => item.id === order.id) || order;
-  const getShop = (order) => customerShops[order.shopId] || null;
+  const getShop = (order) => {
+    if (order.shopName || order.shop) {
+      return {
+        name: order.shopName || order.shop,
+        address: order.shopAddress || "Mandsaur, MP",
+        latitude: order.shopLatitude,
+        longitude: order.shopLongitude,
+        shopType: order.shopType,
+        currentArea: order.currentArea,
+        locationUpdatedAt: order.locationUpdatedAt,
+      };
+    }
+    return customerShops[order.shopId] || null;
+  };
 
   const normalizedStatus = (order) => {
     if (order.status === "Reserved") return "Pending";
@@ -75,10 +102,13 @@ const CustomerOrders = () => {
     });
   }, [orders, activeTab, query]);
 
-  const updateOrder = (id, status) => {
-    const updated = orders.map((order) => order.id === id ? { ...order, status, updatedAt: new Date().toISOString() } : order);
-    setOrders(updated);
-    localStorage.setItem("nearGoOrders", JSON.stringify(updated));
+  const updateOrder = async (id, status) => {
+    await updateOrderStatus(id, status);
+    setOrders((prev) =>
+      prev.map((order) =>
+        order.id === id ? { ...order, status, updatedAt: new Date().toISOString() } : order
+      )
+    );
   };
 
   return (
@@ -117,8 +147,118 @@ const OrderCard = ({ order, product, shop, expanded, onExpand, onUpdate, onNavig
   const toneClasses = { amber: "bg-[#fff2df] text-[#b75d17]", blue: "bg-[#e9f1f8] text-[#3e6d91]", teal: "bg-[#e5f1ec] text-[#3b806a]", green: "bg-[#e5f1ec] text-[#3b806a]", red: "bg-[#f5e8e4] text-[#a45d4c]" };
   const statusLabel = currentStatus.label;
 
-  return <article className="overflow-hidden border border-[#e3e1d9] bg-[#fffdfa]"><div className="flex flex-col gap-5 p-4 sm:flex-row sm:items-center sm:p-5"><button onClick={() => onNavigate(`/CustomerProductDetails/${product.id}`)} className="flex min-w-0 flex-1 gap-4 text-left"><div className="flex h-24 w-24 shrink-0 items-center justify-center bg-[#edf0eb] sm:h-28 sm:w-28"><img src={product.image} alt={product.name} className="h-full w-full object-contain p-3 mix-blend-multiply" onError={(event) => { event.currentTarget.style.display = "none"; event.currentTarget.parentElement.innerHTML = `<span style="font-size:40px">${product.emoji}</span>`; }} /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate text-lg font-bold">{product.name}</h3><span className={`inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${toneClasses[currentStatus.tone]}`}><Icon size={12} /> {statusLabel}</span></div><p className="mt-1 text-sm text-[#7c8583]">{product.shop} · {product.distance}</p><div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs font-semibold text-[#5e6d75]"><span className="flex items-center gap-1.5"><CalendarDays size={14} className="text-[#f28a2e]" /> {order.pickupDate || "Today"}, {order.pickupTime || "4:30 PM"}</span><span>Qty {order.quantity || 1} · ₹{total.toLocaleString("en-IN")}</span></div></div></button><div className="flex shrink-0 gap-2 sm:flex-col"><button onClick={onExpand} className="flex items-center justify-center gap-1 border border-[#d7dcd6] px-3 py-2 text-xs font-bold text-[#5e6d75]">{expanded ? "Hide details" : "View details"}<ArrowUpRight size={14} /></button>{order.status !== "Cancelled" && order.status !== "Completed" && <button onClick={() => onUpdate(order.id, "Cancelled")} className="flex items-center justify-center gap-1 px-3 py-2 text-xs font-bold text-[#a45d4c]"><X size={14} /> Cancel</button>}</div></div>{expanded && <div className="border-t border-[#ece9e1] bg-[#fcfbf7] px-5 py-5 sm:px-7"><div className="grid gap-6 lg:grid-cols-[1fr_0.85fr]"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#f28a2e]">Reservation progress</p><div className="mt-5 flex items-start"><TimelineStep done={currentStatus.label !== "Pending" && currentStatus.label !== "Cancelled"} active={currentStatus.label === "Pending"} label="Requested" /><TimelineStep done={["Confirmed", "Ready for pickup", "Completed"].includes(currentStatus.label)} active={currentStatus.label === "Confirmed"} label="Accepted" /><TimelineStep done={["Ready for pickup", "Completed"].includes(currentStatus.label)} active={currentStatus.label === "Ready for pickup"} label="Ready" /><TimelineStep done={currentStatus.label === "Completed"} active={currentStatus.label === "Completed"} label="Picked up" last /></div><p className="mt-5 text-sm text-[#7c8583]">{currentStatus.description}.</p></div><div className="border-l-0 border-[#e6e4dc] lg:border-l lg:pl-6"><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#f28a2e]">Pickup details</p><p className="mt-3 font-bold">{shop?.name || product.shop}</p><p className="mt-1 flex items-start gap-2 text-sm text-[#7c8583]"><MapPin size={15} className="mt-0.5 shrink-0 text-[#f28a2e]" />{shop?.address || "Nearby local shop"}</p><p className="mt-2 flex items-center gap-2 text-sm text-[#7c8583]"><Clock3 size={15} className="text-[#f28a2e]" />{order.pickupDate || "Today"}, {order.pickupTime || "4:30 PM"}</p><div className="mt-5 flex flex-wrap gap-2"><button onClick={() => onNavigate(`/CustomerShopDetails/${product.shopId}`)} className="border border-[#d7dcd6] px-3 py-2 text-xs font-bold text-[#173d3b]">View shop</button>{shop?.phone && <button onClick={() => window.open(`tel:${shop.phone}`)} className="flex items-center gap-1 border border-[#d7dcd6] px-3 py-2 text-xs font-bold text-[#173d3b]"><Phone size={13} /> Call</button>}</div></div></div>{order.status === "Cancelled" && <button onClick={() => onNavigate(`/CustomerReservation?productId=${product.id}`)} className="mt-5 flex items-center gap-2 text-sm font-bold text-[#b75d17]">Reserve again <ArrowUpRight size={15} /></button>}</div>}</article>;
-};
+  return (
+    <article className="overflow-hidden border border-[#e3e1d9] bg-[#fffdfa]">
+      <div className="flex flex-col gap-5 p-4 sm:flex-row sm:items-center sm:p-5">
+        <button onClick={() => onNavigate(`/CustomerProductDetails/${product.id}`)} className="flex min-w-0 flex-1 gap-4 text-left">
+          <div className="flex h-24 w-24 shrink-0 items-center justify-center bg-[#edf0eb] sm:h-28 sm:w-28">
+            <img src={product.image} alt={product.name} className="h-full w-full object-contain p-3 mix-blend-multiply" onError={(event) => { event.currentTarget.style.display = "none"; event.currentTarget.parentElement.innerHTML = `<span style="font-size:40px">${product.emoji}</span>`; }} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="truncate text-lg font-bold">{product.name}</h3>
+              <span className={`inline-flex items-center gap-1 px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${toneClasses[currentStatus.tone]}`}>
+                <Icon size={12} /> {statusLabel}
+              </span>
+            </div>
+            <p className="mt-1 text-sm text-[#7c8583]">{product.shop} · {product.distance}</p>
+            <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 text-xs font-semibold text-[#5e6d75]">
+              <span className="flex items-center gap-1.5">
+                <CalendarDays size={14} className="text-[#f28a2e]" /> {order.pickupDate || "Today"}, {order.pickupTime || "4:30 PM"}
+              </span>
+              <span>Qty {order.quantity || 1} · ₹{total.toLocaleString("en-IN")}</span>
+            </div>
+          </div>
+        </button>
+        <div className="flex shrink-0 gap-2 sm:flex-col">
+          <button onClick={onExpand} className="flex items-center justify-center gap-1 border border-[#d7dcd6] px-3 py-2 text-xs font-bold text-[#5e6d75]">
+            {expanded ? "Hide details" : "View details"}<ArrowUpRight size={14} />
+          </button>
+          {order.status !== "Cancelled" && order.status !== "Completed" && (
+            <button onClick={() => onUpdate(order.id, "Cancelled")} className="flex items-center justify-center gap-1 px-3 py-2 text-xs font-bold text-[#a45d4c]">
+              <X size={14} /> Cancel
+            </button>
+          )}
+        </div>
+      </div>
+      {expanded && (
+          <div className="border-t border-[#ece9e1] bg-[#fcfbf7] px-5 py-5 sm:px-7">
+            <div className="grid gap-6 lg:grid-cols-[1fr_0.85fr]">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#f28a2e]">Reservation progress</p>
+                <div className="mt-5 flex items-start">
+                  <TimelineStep done={currentStatus.label !== "Pending" && currentStatus.label !== "Cancelled"} active={currentStatus.label === "Pending"} label="Requested" />
+                  <TimelineStep done={["Confirmed", "Ready for pickup", "Completed"].includes(currentStatus.label)} active={currentStatus.label === "Confirmed"} label="Accepted" />
+                  <TimelineStep done={["Ready for pickup", "Completed"].includes(currentStatus.label)} active={currentStatus.label === "Ready for pickup"} label="Ready" />
+                  <TimelineStep done={currentStatus.label === "Completed"} active={currentStatus.label === "Completed"} label="Picked up" last />
+                </div>
+                <p className="mt-5 text-sm text-[#7c8583]">{currentStatus.description}.</p>
+
+                {/* Live Map when seller accepts reservation */}
+                {["Confirmed", "Ready for pickup", "Completed"].includes(currentStatus.label) && (
+                  <div className="mt-5 border border-[#d8e0d9] bg-[#edf5f2] p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#3b806a]">
+                        <Navigation size={15} /> Live Seller Location
+                      </div>
+                      <span className="rounded bg-[#3b806a] px-2 py-0.5 text-[10px] font-bold text-white uppercase">
+                        {shop?.shopType || "Active"}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm font-semibold text-[#173d3b]">
+                      {shop?.currentArea ? `Currently at ${shop.currentArea}` : (shop?.address || "Mandsaur, MP")}
+                    </p>
+                    {shop?.latitude && shop?.longitude && (
+                      <p className="text-xs text-[#7c8583] mt-0.5">
+                        Coords: {Number(shop.latitude).toFixed(4)}, {Number(shop.longitude).toFixed(4)}
+                      </p>
+                    )}
+                    <a
+                      href={shop?.latitude && shop?.longitude ? `https://www.google.com/maps/search/?api=1&query=${shop.latitude},${shop.longitude}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(shop?.name || "Mandsaur")}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-3 inline-flex items-center gap-1.5 rounded bg-[#113b52] px-3 py-1.5 text-xs font-bold text-white hover:bg-[#1a4f6d]"
+                    >
+                      <MapPin size={13} /> View on Google Maps
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              <div className="border-l-0 border-[#e6e4dc] lg:border-l lg:pl-6">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#f28a2e]">Pickup details</p>
+                <p className="mt-3 font-bold">{shop?.name || product.shop}</p>
+                <p className="mt-1 flex items-start gap-2 text-sm text-[#7c8583]">
+                  <MapPin size={15} className="mt-0.5 shrink-0 text-[#f28a2e]" />
+                  {shop?.address || "Nearby local shop"}
+                </p>
+                <p className="mt-2 flex items-center gap-2 text-sm text-[#7c8583]">
+                  <Clock3 size={15} className="text-[#f28a2e]" />
+                  {order.pickupDate || "Today"}, {order.pickupTime || "4:30 PM"}
+                </p>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <button onClick={() => onNavigate(`/CustomerShopDetails/${product.shopId || order.shopId}`)} className="border border-[#d7dcd6] px-3 py-2 text-xs font-bold text-[#173d3b]">
+                    View shop
+                  </button>
+                  {shop?.phone && (
+                    <button onClick={() => window.open(`tel:${shop.phone}`)} className="flex items-center gap-1 border border-[#d7dcd6] px-3 py-2 text-xs font-bold text-[#173d3b]">
+                      <Phone size={13} /> Call
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {order.status === "Cancelled" && (
+              <button onClick={() => onNavigate(`/CustomerReservation?productId=${product.id}`)} className="mt-5 flex items-center gap-2 text-sm font-bold text-[#b75d17]">
+                Reserve again <ArrowUpRight size={15} />
+              </button>
+            )}
+          </div>
+        )}
+      </article>
+    );
+  };
 
 const TimelineStep = ({ label, done, active, last }) => <div className="relative flex min-w-0 flex-1 flex-col items-center text-center"><div className="flex w-full items-center"><span className={`z-10 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${done ? "bg-[#3b806a] text-white" : active ? "bg-[#f28a2e] text-white" : "bg-[#dfe5df] text-[#87908d]"}`}>{done ? <Check size={14} /> : <span className="h-2 w-2 rounded-full bg-current" />}</span>{!last && <span className={`h-0.5 flex-1 ${done ? "bg-[#3b806a]" : "bg-[#dfe5df]"}`} />}</div><span className={`mt-2 text-[10px] font-bold ${done || active ? "text-[#173d3b]" : "text-[#9aa39e]"}`}>{label}</span></div>;
 const Summary = ({ value, label, tone }) => <div className="border-r border-[#ece9e1] p-4 last:border-r-0 sm:p-5"><p className={`text-2xl font-semibold tracking-[-0.04em] ${tone === "amber" ? "text-[#b75d17]" : tone === "red" ? "text-[#a45d4c]" : tone === "green" ? "text-[#3b806a]" : "text-[#3e6d91]"}`}>{value}</p><p className="mt-1 text-[10px] font-bold uppercase tracking-[0.13em] text-[#87908d]">{label}</p></div>;

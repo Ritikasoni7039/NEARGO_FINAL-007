@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Check,
@@ -13,20 +13,14 @@ import {
   Users,
   X,
   XCircle,
+  Loader2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "../supabaseClient";
 import { currentShop, shopkeeperReservations } from "./shopkeeperData";
+import { getSellerOrders, updateOrderStatus } from "../services/marketplaceService";
 
 const tabs = ["All", "Pending", "Confirmed", "Ready", "Completed", "Cancelled"];
-
-const readReservations = () => {
-  try {
-    const saved = JSON.parse(localStorage.getItem("nearGoShopkeeperReservations") || "null");
-    return Array.isArray(saved) ? saved : shopkeeperReservations;
-  } catch {
-    return shopkeeperReservations;
-  }
-};
 
 const statusStyles = {
   Pending: { tone: "bg-[#fff2df] text-[#b75d17]", icon: Clock3, description: "Waiting for your response" },
@@ -38,11 +32,45 @@ const statusStyles = {
 
 export default function ShopkeeperReservations() {
   const navigate = useNavigate();
-  const [reservations, setReservations] = useState(readReservations);
+  const [reservations, setReservations] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [shopName, setShopName] = useState(currentShop.name);
   const [activeTab, setActiveTab] = useState("All");
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState(null);
   const [notice, setNotice] = useState("");
+
+  useEffect(() => {
+    const fetchReservations = async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const user = sessionData?.session?.user;
+
+        let shopId = null;
+        if (user) {
+          const { data: shopData } = await supabase
+            .from("shops")
+            .select("*")
+            .eq("owner_id", user.id)
+            .single();
+
+          if (shopData) {
+            shopId = shopData.id;
+            setShopName(shopData.shop_name);
+          }
+        }
+
+        const list = await getSellerOrders(shopId);
+        setReservations(list);
+      } catch (err) {
+        console.error("Error loading seller orders:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchReservations();
+  }, []);
 
   const counts = useMemo(() => tabs.reduce((all, tab) => ({ ...all, [tab]: tab === "All" ? reservations.length : reservations.filter((item) => item.status === tab).length }), {}), [reservations]);
   const visibleReservations = useMemo(() => reservations.filter((reservation) => {
@@ -50,11 +78,11 @@ export default function ShopkeeperReservations() {
     return (activeTab === "All" || reservation.status === activeTab) && (!query.trim() || text.includes(query.trim().toLowerCase()));
   }), [reservations, activeTab, query]);
 
-  const updateStatus = (id, status) => {
+  const updateStatus = async (id, status) => {
+    await updateOrderStatus(id, status);
     const updated = reservations.map((reservation) => reservation.id === id ? { ...reservation, status, updatedAt: new Date().toISOString() } : reservation);
     setReservations(updated);
-    localStorage.setItem("nearGoShopkeeperReservations", JSON.stringify(updated));
-    setNotice(status === "Cancelled" ? "Reservation cancelled" : `Reservation marked ${status.toLowerCase()}`);
+    setNotice(status === "Cancelled" ? "Reservation declined" : `Reservation marked ${status.toLowerCase()}`);
     window.setTimeout(() => setNotice(""), 2200);
   };
 

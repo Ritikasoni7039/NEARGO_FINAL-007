@@ -133,6 +133,10 @@ const App = () => {
           path="/shopkeeperdashboard"
           element={<ShopkeeperDashboard />}
         />
+        <Route
+          path="/ShopkeeperDashboard"
+          element={<ShopkeeperDashboard />}
+        />
 
         <Route
           path="/ShopkeeperInventory"

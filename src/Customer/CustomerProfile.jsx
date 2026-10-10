@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   Bell,
@@ -17,9 +17,11 @@ import {
   Sparkles,
   User,
   X,
+  Loader2,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import BottomNavigation from "./components/BottomNavigation";
+import { supabase } from "../supabaseClient";
 
 const readStorage = (storage, key, fallback) => {
   try {
@@ -29,59 +31,122 @@ const readStorage = (storage, key, fallback) => {
   }
 };
 
-const getInitialProfile = () => {
-  const savedProfile = readStorage(sessionStorage, "nearGoCustomerProfile", {});
-  const signupData = readStorage(sessionStorage, "nearGoSignupData", {});
-
-  return {
-    name: savedProfile.name || signupData.fullName || "Your name",
-    phone: savedProfile.phone || signupData.mobile || "",
-    email: savedProfile.email || signupData.email || "",
-  };
-};
-
-const getLocation = () => readStorage(sessionStorage, "nearGoCustomerLocation", { city: "Indore", radius: "2 km" });
+const getLocation = () => readStorage(sessionStorage, "nearGoCustomerLocation", { city: "Mandsaur", radius: "2 km" });
 
 const CustomerProfile = () => {
   const navigate = useNavigate();
-  const [profile, setProfile] = useState(getInitialProfile);
+  const [profile, setProfile] = useState({
+    name: "Customer",
+    phone: "",
+    email: "",
+    username: "",
+    role: "customer",
+    avatar_url: "",
+  });
+  const [loading, setLoading] = useState(true);
   const [location, setLocation] = useState(getLocation);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(profile);
   const [notifications, setNotifications] = useState(true);
   const [nearbyAlerts, setNearbyAlerts] = useState(true);
   const [saveMessage, setSaveMessage] = useState("");
+  const [userId, setUserId] = useState(null);
+
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const user = sessionData?.session?.user;
+
+        if (user) {
+          setUserId(user.id);
+          const { data: profileData } = await supabase
+            .from("profiles")
+            .select("*")
+            .eq("id", user.id)
+            .maybeSingle();
+
+          const loaded = {
+            name: profileData?.full_name || user.user_metadata?.full_name || "Customer",
+            phone: profileData?.phone || user.user_metadata?.phone || "",
+            email: profileData?.email || user.email || "",
+            username: profileData?.username || "",
+            role: profileData?.role || "customer",
+            avatar_url: profileData?.avatar_url || "",
+          };
+          setProfile(loaded);
+          setDraft(loaded);
+        } else {
+          // Fallback to local storage
+          const savedProfile = readStorage(sessionStorage, "nearGoCustomerProfile", {});
+          const fallbackLoaded = {
+            name: savedProfile.name || "Customer",
+            phone: savedProfile.phone || "",
+            email: savedProfile.email || "",
+            username: "",
+            role: "customer",
+            avatar_url: "",
+          };
+          setProfile(fallbackLoaded);
+          setDraft(fallbackLoaded);
+        }
+      } catch (err) {
+        console.warn("Profile fetch error:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchUserProfile();
+  }, []);
 
   const orders = readStorage(localStorage, "nearGoOrders", []);
   const savedItems = readStorage(localStorage, "nearGoSaved", []);
   const activeOrders = orders.filter((order) => order.status !== "Cancelled");
 
   const initials = useMemo(() => {
-    const parts = profile.name.trim().split(/\s+/).filter(Boolean);
+    const parts = (profile.name || "NG").trim().split(/\s+/).filter(Boolean);
     return parts.slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "NG";
   }, [profile.name]);
 
-  const completion = [profile.name !== "Your name", Boolean(profile.phone), Boolean(profile.email), Boolean(location.address || location.city)].filter(Boolean).length * 25;
+  const completion = [profile.name !== "Customer", Boolean(profile.phone), Boolean(profile.email), Boolean(location.address || location.city)].filter(Boolean).length * 25;
 
-  const saveProfile = () => {
+  const saveProfile = async () => {
     const updatedProfile = {
-      name: draft.name.trim() || "Your name",
+      ...profile,
+      name: draft.name.trim() || "Customer",
       phone: draft.phone.trim(),
       email: draft.email.trim(),
+      username: draft.username ? draft.username.trim() : "",
     };
+
+    if (userId) {
+      try {
+        await supabase
+          .from("profiles")
+          .update({
+            full_name: updatedProfile.name,
+            phone: updatedProfile.phone,
+            username: updatedProfile.username,
+          })
+          .eq("id", userId);
+      } catch (err) {
+        console.error("Supabase profile update error:", err);
+      }
+    }
 
     setProfile(updatedProfile);
     setDraft(updatedProfile);
     sessionStorage.setItem("nearGoCustomerProfile", JSON.stringify(updatedProfile));
-    sessionStorage.setItem("nearGoSignupData", JSON.stringify({
-      ...readStorage(sessionStorage, "nearGoSignupData", {}),
-      fullName: updatedProfile.name,
-      mobile: updatedProfile.phone,
-      email: updatedProfile.email,
-    }));
     setEditing(false);
-    setSaveMessage("Profile updated");
+    setSaveMessage("Profile updated successfully");
     window.setTimeout(() => setSaveMessage(""), 2500);
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    sessionStorage.clear();
+    navigate("/");
   };
 
   const changeLocation = () => {
@@ -143,7 +208,30 @@ const CustomerProfile = () => {
               {!editing && <button type="button" onClick={() => { setDraft(profile); setEditing(true); }} className="rounded-full bg-[#f5f6f1] p-2 text-[#65737a] hover:text-[#b75d17]" aria-label="Edit personal details"><Pencil size={17} /></button>}
             </div>
 
-            {editing ? <div className="mt-7 space-y-6"><ProfileField label="Full name" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} placeholder="Your full name" /><ProfileField label="Mobile number" value={draft.phone} onChange={(value) => setDraft({ ...draft, phone: value })} placeholder="10-digit mobile number" /><ProfileField label="Email address" value={draft.email} onChange={(value) => setDraft({ ...draft, email: value })} placeholder="you@example.com" type="email" /><div className="flex gap-3"><button onClick={saveProfile} className="flex flex-1 items-center justify-center gap-2 bg-[#f28a2e] px-4 py-3 text-sm font-bold text-white"><Check size={16} /> Save changes</button><button onClick={() => { setDraft(profile); setEditing(false); }} className="border border-[#d7dcd6] px-4 py-3 text-sm font-bold text-[#65737a]">Cancel</button></div></div> : <div className="mt-7 space-y-5"><DetailRow icon={<User size={18} />} label="Full name" value={profile.name} /><DetailRow icon={<Phone size={18} />} label="Mobile number" value={profile.phone || "Add your number"} muted={!profile.phone} /><DetailRow icon={<Search size={18} />} label="Email address" value={profile.email || "Add your email"} muted={!profile.email} /></div>}
+            {editing ? (
+              <div className="mt-7 space-y-6">
+                <ProfileField label="Full name" value={draft.name} onChange={(value) => setDraft({ ...draft, name: value })} placeholder="Your full name" />
+                <ProfileField label="Username" value={draft.username} onChange={(value) => setDraft({ ...draft, username: value })} placeholder="username" />
+                <ProfileField label="Mobile number" value={draft.phone} onChange={(value) => setDraft({ ...draft, phone: value })} placeholder="10-digit mobile number" />
+                <ProfileField label="Email address" value={draft.email} onChange={(value) => setDraft({ ...draft, email: value })} placeholder="you@example.com" type="email" />
+                <div className="flex gap-3">
+                  <button onClick={saveProfile} className="flex flex-1 items-center justify-center gap-2 bg-[#f28a2e] px-4 py-3 text-sm font-bold text-white">
+                    <Check size={16} /> Save changes
+                  </button>
+                  <button onClick={() => { setDraft(profile); setEditing(false); }} className="border border-[#d7dcd6] px-4 py-3 text-sm font-bold text-[#65737a]">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-7 space-y-5">
+                <DetailRow icon={<User size={18} />} label="Full name" value={profile.name} />
+                <DetailRow icon={<User size={18} />} label="Username" value={profile.username || "Set username"} muted={!profile.username} />
+                <DetailRow icon={<ShieldCheck size={18} />} label="Account Role" value={profile.role?.toUpperCase() || "CUSTOMER"} />
+                <DetailRow icon={<Phone size={18} />} label="Mobile number" value={profile.phone || "Add your number"} muted={!profile.phone} />
+                <DetailRow icon={<Search size={18} />} label="Email address" value={profile.email || "Add your email"} muted={!profile.email} />
+              </div>
+            )}
           </section>
 
           <section className="border border-[#e3e1d9] bg-[#fffdfa] p-6 sm:p-8">
@@ -161,7 +249,7 @@ const CustomerProfile = () => {
           <section className="border border-[#e3e1d9] bg-[#fffdfa] p-6 sm:p-8"><div className="flex items-center gap-3"><div className="flex h-10 w-10 items-center justify-center bg-[#edf5f2] text-[#3b806a]"><ShieldCheck size={19} /></div><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-[#3b806a]">Trust & privacy</p><h2 className="mt-1 text-xl font-semibold">Your account is yours</h2></div></div><p className="mt-5 text-sm leading-6 text-[#7c8583]">We only use your area to show nearby products and shops. Your reservation details stay connected to your account.</p><button onClick={() => setSaveMessage("Your account preferences are saved locally") } className="mt-5 flex items-center gap-2 text-sm font-bold text-[#b75d17]">Review account settings <ChevronRight size={16} /></button></section>
         </section>
 
-        <button type="button" onClick={() => navigate("/")} className="mx-auto mt-8 flex items-center gap-2 text-sm font-bold text-[#8a5c50]"><LogOut size={16} /> Sign out</button>
+        <button type="button" onClick={handleLogout} className="mx-auto mt-8 flex items-center gap-2 text-sm font-bold text-[#8a5c50] hover:text-red-700"><LogOut size={16} /> Sign out</button>
       </div>
 
       <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-[#dfe3de] bg-[#fffdfa]/95 pb-[calc(0.45rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl"><div className="mx-auto flex max-w-xl items-center justify-around"><NavItem icon={<Home />} label="Home" onClick={() => navigate("/CustomerDashboard")} /><NavItem icon={<MapPin />} label="Nearby" onClick={() => navigate("/Nearby")} /><NavItem icon={<Package />} label="Orders" onClick={() => navigate("/CustomerOrders")} /><NavItem icon={<User />} label="Profile" active onClick={() => navigate("/CustomerProfile")} />

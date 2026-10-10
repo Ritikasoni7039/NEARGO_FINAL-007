@@ -17,10 +17,12 @@ import {
   Users,
   WalletCards,
   Loader2,
+  Mic,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabaseClient";
 import { shopkeeperProducts, shopkeeperReservations } from "./shopkeeperData";
+import VoiceProductModal from "./VoiceProductModal";
 
 const readSetting = () => {
   try {
@@ -43,6 +45,7 @@ export default function ShopkeeperDashboard() {
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState(readSetting);
   const [notice, setNotice] = useState("");
+  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
 
   useEffect(() => {
     const fetchShopDataFromSupabase = async () => {
@@ -77,7 +80,8 @@ export default function ShopkeeperDashboard() {
         }
 
         if (shopData) {
-          setShop({
+          const formattedShop = {
+            id: shopData.id,
             name: shopData.shop_name,
             ownerName: user.user_metadata?.full_name || "Shop Owner",
             category: shopData.category,
@@ -89,10 +93,63 @@ export default function ShopkeeperDashboard() {
             openingTime: shopData.opening_time || "09:00 AM",
             closingTime: shopData.closing_time || "09:00 PM",
             shopImage: shopData.shop_image,
-          });
+            latitude: shopData.latitude,
+            longitude: shopData.longitude,
+            currentArea: shopData.current_area,
+            locationUpdatedAt: shopData.location_updated_at,
+          };
+          setShop(formattedShop);
+
+          // Fetch real products for this shop
+          const { data: dbProducts } = await supabase
+            .from("products")
+            .select("*")
+            .eq("shop_id", shopData.id);
+
+          if (dbProducts && dbProducts.length > 0) {
+            setProducts(
+              dbProducts.map((p) => ({
+                id: p.id,
+                name: p.title,
+                category: p.category,
+                price: Number(p.price),
+                quantity: Number(p.stock) || 0,
+                stockStatus: Number(p.stock) === 0 ? "Out of stock" : Number(p.stock) <= 7 ? "Low stock" : "In stock",
+                details: p.description,
+                emoji: "📦",
+              }))
+            );
+          }
+
+          // Fetch real orders for this shop
+          const { data: dbOrders } = await supabase
+            .from("orders")
+            .select("*, order_items(*, products(*)), profiles(*)")
+            .eq("shop_id", shopData.id);
+
+          if (dbOrders && dbOrders.length > 0) {
+            setReservations(
+              dbOrders.map((o) => {
+                const item = o.order_items?.[0] || {};
+                const product = item.products || {};
+                const customer = o.profiles || {};
+                return {
+                  id: o.id,
+                  customerName: customer.full_name || "Customer",
+                  customerPhone: customer.phone || "+91 98765 43210",
+                  productName: product.title || "Reserved Item",
+                  quantity: Number(item.quantity || 1),
+                  total: Number(o.total_amount || 0),
+                  status: o.status === "pending" ? "Pending" : o.status === "accepted" ? "Confirmed" : o.status === "ready" ? "Ready" : o.status === "completed" ? "Completed" : "Cancelled",
+                  pickupTime: o.delivery_address || "Pickup scheduled",
+                };
+              })
+            );
+          }
         } else {
           // Fallback if shop row not found yet
           setShop({
+            id: null,
             name: "My Registered Shop",
             ownerName: user.user_metadata?.full_name || "Shop Owner",
             category: "General Store",
@@ -115,8 +172,11 @@ export default function ShopkeeperDashboard() {
     fetchShopDataFromSupabase();
   }, []);
 
-  const lowStock = useMemo(() => shopkeeperProducts.filter((product) => product.stockStatus === "Low stock"), []);
-  const outOfStock = useMemo(() => shopkeeperProducts.filter((product) => product.stockStatus === "Out of stock"), []);
+  const [products, setProducts] = useState(shopkeeperProducts);
+  const [reservations, setReservations] = useState(shopkeeperReservations);
+
+  const lowStock = useMemo(() => products.filter((product) => product.stockStatus === "Low stock"), [products]);
+  const outOfStock = useMemo(() => products.filter((product) => product.stockStatus === "Out of stock"), [products]);
 
   const updateSettings = (next) => {
     setSettings(next);
@@ -175,10 +235,39 @@ export default function ShopkeeperDashboard() {
           <div className="absolute -bottom-40 right-40 h-72 w-72 rounded-full border-[22px] border-[#f28a2e]/10" />
         </section>
 
+        {/* Temporary Vendor Live Location Card */}
+        {shop?.shopType === "temporary" && (
+          <section className="mt-5 border border-[#fed7aa] bg-[#fffaf5] p-5 shadow-sm sm:p-6">
+            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-[#ea580c]">
+                  <MapPin size={16} /> Live Operating Spot (Temporary Vendor)
+                </div>
+                <h3 className="mt-1 text-xl font-bold text-[#173d3b]">
+                  {shop.currentArea || "Operating Spot Not Set"}
+                </h3>
+                <p className="mt-1 text-xs text-[#7c8583]">
+                  {shop.latitude && shop.longitude
+                    ? `Coordinates: ${Number(shop.latitude).toFixed(4)}, ${Number(shop.longitude).toFixed(4)}`
+                    : "Update your operating area so nearby customers can find you."}
+                  {shop.locationUpdatedAt && ` · Last updated: ${new Date(shop.locationUpdatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => navigate("/Update_Location")}
+                className="flex items-center gap-2 rounded bg-[#ea580c] px-4 py-2.5 text-xs font-bold text-white transition hover:bg-[#c2410c]"
+              >
+                <MapPin size={15} /> Update Live Location
+              </button>
+            </div>
+          </section>
+        )}
+
         <section className="mt-5 grid grid-cols-2 border border-[#e3e1d9] bg-[#fffdfa] sm:grid-cols-4">
-          <Metric icon={<WalletCards />} value="₹8,420" label="Today's sales" detail="+12% this week" tone="orange" />
-          <Metric icon={<ShoppingBag />} value={shopkeeperReservations.length} label="Reservations" detail="Needs attention" tone="blue" />
-          <Metric icon={<Package />} value={shopkeeperProducts.length} label="Products listed" detail="Keep stock fresh" tone="teal" />
+          <Metric icon={<WalletCards />} value={`₹${reservations.reduce((acc, r) => acc + (Number(r.total) || 0), 0).toLocaleString("en-IN")}`} label="Total value" detail={`${reservations.length} orders total`} tone="orange" />
+          <Metric icon={<ShoppingBag />} value={reservations.length} label="Reservations" detail={`${reservations.filter(r => r.status === "Pending").length} pending`} tone="blue" />
+          <Metric icon={<Package />} value={products.length} label="Products listed" detail="Live Supabase stock" tone="teal" />
           <Metric icon={<Bell />} value={lowStock.length + outOfStock.length} label="Stock alerts" detail={`${outOfStock.length} out of stock`} tone="red" />
         </section>
 
@@ -192,7 +281,7 @@ export default function ShopkeeperDashboard() {
               <button type="button" onClick={() => navigate("/ShopkeeperReservations")} className="flex items-center gap-1 text-sm font-bold text-[#b75d17]">View all <ArrowUpRight size={16} /></button>
             </div>
             <div className="mt-4 space-y-3">
-              {shopkeeperReservations.map((reservation) => (
+              {reservations.slice(0, 5).map((reservation) => (
                 <article key={reservation.id} className="border border-[#e3e1d9] bg-[#fffdfa] p-4 sm:p-5">
                   <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
                     <div className="flex min-w-0 items-center gap-3">
@@ -200,7 +289,7 @@ export default function ShopkeeperDashboard() {
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <h3 className="font-bold">{reservation.customerName}</h3>
-                          <span className={`px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${statusStyle[reservation.status]}`}>{reservation.status}</span>
+                          <span className={`px-2 py-1 text-[10px] font-bold uppercase tracking-wide ${statusStyle[reservation.status] || "bg-gray-100 text-gray-700"}`}>{reservation.status}</span>
                         </div>
                         <p className="mt-1 truncate text-sm text-[#7c8583]">{reservation.productName} · Qty {reservation.quantity}</p>
                       </div>
@@ -216,6 +305,11 @@ export default function ShopkeeperDashboard() {
                   </div>
                 </article>
               ))}
+              {reservations.length === 0 && (
+                <div className="border border-dashed border-[#cfd5d1] bg-[#fffdfa] p-8 text-center text-sm text-[#7c8583]">
+                  No reservations received yet.
+                </div>
+              )}
             </div>
           </section>
 
@@ -254,13 +348,25 @@ export default function ShopkeeperDashboard() {
         <section className="mt-7">
           <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#f28a2e]">Quick actions</p>
           <h2 className="mt-2 text-2xl font-semibold tracking-[-0.04em]">Keep your shop moving</h2>
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <QuickAction icon={<Plus />} title="Add product" text="List new local stock" onClick={() => navigate("/ShopkeeperInventory?add=true")} />
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <QuickAction icon={<Mic />} title="Add by voice" text="Speak Hindi/English" onClick={() => setVoiceModalOpen(true)} />
+            <QuickAction icon={<Plus />} title="Add product" text="List new local stock" onClick={() => navigate("/ShopkeeperInventory")} />
             <QuickAction icon={<Users />} title="Reservations" text="Respond to customers" onClick={() => navigate("/ShopkeeperReservations")} />
             <QuickAction icon={<Settings2 />} title="Shop settings" text="Hours and preferences" onClick={() => navigate("/ShopkeeperProfile")} />
           </div>
         </section>
       </div>
+
+      <VoiceProductModal
+        isOpen={voiceModalOpen}
+        onClose={() => setVoiceModalOpen(false)}
+        shopId={shop?.id}
+        onProductAdded={(newProd) => {
+          setProducts((prev) => [newProd, ...prev]);
+          setNotice(`"${newProd.name}" added to inventory!`);
+          window.setTimeout(() => setNotice(""), 3000);
+        }}
+      />
 
       {/* Bottom Navigation Bar */}
       <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-[#dfe3de] bg-[#fffdfa]/95 pb-[calc(0.45rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl">

@@ -9,53 +9,71 @@ const ShopkeeperLogin = () => {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-const handleLogin = async (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
     try {
       const cleanEmail = email.trim().toLowerCase();
-      
-      // 1. Pehle database ki 'shops' table mein check karte hain ki yeh email registered hai ya nahi
-      const { data: shopData, error: shopErr } = await supabase
-        .from("shops")
-        .select("*")
-        .eq("email", cleanEmail)
-        .single();
 
-      if (shopErr || !shopData) {
-        throw new Error("Yeh email kisi bhi registered shop se match nahi ho rahi. Kripya pehle register karein.");
-      }
-
-      // 2. Supabase signInWithPassword try karte hain
-      const { data, error: loginErr } = await supabase.auth.signInWithPassword({
+      // 1. Authenticate with Supabase Auth
+      const { data: authData, error: loginErr } = await supabase.auth.signInWithPassword({
         email: cleanEmail,
         password: password,
       });
 
-      // Agar password match na ho ya user auth me na ho, toh ek bar session clear karke fallback handle karein
       if (loginErr) {
-        // Agar password galat hai ya pehle set nahi hua tha
-        throw new Error("Invalid password. Kripya apna sahi password dalein.");
+        throw new Error(loginErr.message || "Invalid email or password.");
       }
 
-      // Active shop details local storage mein save karte hain
-      localStorage.setItem("nearGoActiveShop", JSON.stringify({
-        shopName: shopData.shop_name,
-        ownerName: shopData.owner_name || "Shop Owner",
-        category: shopData.category,
-        address: shopData.address || shopData.landmark,
-        shopType: shopData.shop_type,
-        subType: shopData.sub_type,
-        mobile: shopData.mobile || "",
-        email: shopData.email,
-      }));
+      const user = authData?.user;
+      if (!user) {
+        throw new Error("Login failed. No active session found.");
+      }
 
+      // 2. Fetch shop details for this owner from 'shops' table
+      const { data: shopData, error: shopErr } = await supabase
+        .from("shops")
+        .select("*")
+        .eq("owner_id", user.id)
+        .maybeSingle();
+
+      if (shopErr) {
+        console.warn("Shop fetch warning:", shopErr.message);
+      }
+
+      // 3. Save active shop details into localStorage
+      const activeShopInfo = {
+        id: shopData?.id || null,
+        shopName: shopData?.shop_name || user.user_metadata?.shop_name || "My Shop",
+        ownerName: user.user_metadata?.full_name || shopData?.owner_name || "Shop Owner",
+        category: shopData?.category || "General Store",
+        address: shopData?.address || shopData?.landmark || "Mandsaur",
+        landmark: shopData?.landmark || "",
+        city: shopData?.city || "Mandsaur",
+        pincode: shopData?.pincode || "458001",
+        shopType: shopData?.shop_type || "permanent",
+        subType: shopData?.sub_type || "",
+        mobile: user.user_metadata?.phone || shopData?.phone || "",
+        email: user.email,
+        latitude: shopData?.latitude,
+        longitude: shopData?.longitude,
+        currentArea: shopData?.current_area || "",
+        isLive: shopData?.is_live !== false,
+        shopImage: shopData?.shop_image || null,
+        openingTime: shopData?.opening_time || "09:00 AM",
+        closingTime: shopData?.closing_time || "09:00 PM",
+      };
+
+      localStorage.setItem("nearGoActiveShop", JSON.stringify(activeShopInfo));
+
+      // 4. Role redirect:
+      // If shop_type is temporary or permanent, redirect to seller dashboard (dashboard will show Live Location card for temporary)
       navigate("/ShopkeeperDashboard");
     } catch (err) {
       console.error("Login error:", err);
-      setError(err.message || "Invalid login credentials. Kripya dobara try karein.");
+      setError(err.message || "Invalid login credentials. Please try again.");
     } finally {
       setLoading(false);
     }

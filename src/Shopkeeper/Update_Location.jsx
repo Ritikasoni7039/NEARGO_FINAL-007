@@ -10,6 +10,7 @@ import {
   ShieldAlert,
   Navigation,
 } from "lucide-react";
+import { supabase } from "../supabaseClient";
 
 export default function UpdateLocation() {
   const navigate = useNavigate();
@@ -22,6 +23,42 @@ export default function UpdateLocation() {
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [currentAddress, setCurrentAddress] = useState("Main Market Area, Mandsaur");
+
+  // Load existing shop location on mount
+  useEffect(() => {
+    const loadShopLocation = async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const user = sessionData?.session?.user;
+        if (user) {
+          const { data: shop } = await supabase
+            .from("shops")
+            .select("latitude, longitude, current_area, address")
+            .eq("owner_id", user.id)
+            .maybeSingle();
+
+          if (shop?.latitude && shop?.longitude) {
+            setMapCenter({ lat: Number(shop.latitude), lng: Number(shop.longitude) });
+            if (shop.current_area || shop.address) {
+              setCurrentAddress(shop.current_area || shop.address);
+            }
+            return;
+          }
+        }
+
+        const local = JSON.parse(localStorage.getItem("nearGoActiveShop") || "{}");
+        if (local.latitude && local.longitude) {
+          setMapCenter({ lat: Number(local.latitude), lng: Number(local.longitude) });
+          if (local.currentArea || local.address) {
+            setCurrentAddress(local.currentArea || local.address);
+          }
+        }
+      } catch (err) {
+        console.warn("Could not load initial location:", err);
+      }
+    };
+    loadShopLocation();
+  }, []);
 
   // Search location via Nominatim API
   useEffect(() => {
@@ -88,22 +125,51 @@ export default function UpdateLocation() {
     );
   };
 
-  const handleSaveLocation = () => {
+  const handleSaveLocation = async () => {
     setSaving(true);
-    setTimeout(() => {
-      // Save updated spot to local storage/session storage for customers & profile view
+    setSuccessMsg("");
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData?.session?.user;
+
+      if (user) {
+        // Save to Supabase shops table
+        const { error: updateErr } = await supabase
+          .from("shops")
+          .update({
+            latitude: mapCenter.lat,
+            longitude: mapCenter.lng,
+            current_area: currentAddress,
+            location_updated_at: new Date().toISOString(),
+            is_live: true,
+          })
+          .eq("owner_id", user.id);
+
+        if (updateErr) {
+          console.error("Supabase location update error:", updateErr);
+        }
+      }
+
+      // Save updated spot to local storage for instant dashboard updates
       const activeShop = JSON.parse(localStorage.getItem("nearGoActiveShop") || "{}");
       activeShop.address = currentAddress;
+      activeShop.currentArea = currentAddress;
       activeShop.latitude = mapCenter.lat;
       activeShop.longitude = mapCenter.lng;
+      activeShop.locationUpdatedAt = new Date().toISOString();
+      activeShop.isLive = true;
       localStorage.setItem("nearGoActiveShop", JSON.stringify(activeShop));
 
-      setSaving(false);
-      setSuccessMsg("Spot updated successfully! Customers can now see your updated approximate area.");
+      setSuccessMsg("Spot updated successfully! Customers can now see your live location.");
       setTimeout(() => {
         navigate("/ShopkeeperDashboard");
-      }, 2000);
-    }, 1000);
+      }, 1500);
+    } catch (err) {
+      console.error("Location save error:", err);
+      alert(err.message || "Failed to update location. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -147,6 +213,51 @@ export default function UpdateLocation() {
             </div>
           </div>
 
+          {/* Manual Area Input & Popular Area Chips */}
+          <div className="mb-6 space-y-3">
+            <div>
+              <label className="text-[11px] font-bold text-gray-500 uppercase">Operating Spot / Area Name</label>
+              <input
+                type="text"
+                value={currentAddress}
+                onChange={(e) => setCurrentAddress(e.target.value)}
+                placeholder="e.g. Gandhi Chowk, Bus Stand, Station Road"
+                className="mt-1 h-12 w-full rounded-2xl border border-gray-200 bg-[#f8fafb] px-4 text-sm font-semibold text-[#113b52] outline-none focus:border-[#f28a2e]"
+              />
+            </div>
+
+            <div>
+              <p className="text-[10px] font-bold text-gray-400 uppercase mb-1.5">Quick Select Area:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  "Gandhi Chowk",
+                  "Bus Stand",
+                  "Station Road",
+                  "Nai Abadi",
+                  "Mhow-Neemuch Road",
+                  "Bada Bazar",
+                  "Sarafa Bazar",
+                  "Sanjeevani Hospital Road"
+                ].map((spot) => (
+                  <button
+                    key={spot}
+                    type="button"
+                    onClick={() => {
+                      setCurrentAddress(`${spot}, Mandsaur`);
+                    }}
+                    className={`rounded-xl border px-3 py-1.5 text-xs font-bold transition ${
+                      currentAddress.includes(spot)
+                        ? "border-[#f28a2e] bg-orange-50 text-[#ea580c]"
+                        : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+                    }`}
+                  >
+                    {spot}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           {/* Search & GPS Action Bar */}
           <div className="space-y-4 mb-6">
             <div className="flex gap-2">
@@ -156,7 +267,7 @@ export default function UpdateLocation() {
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search landmark or area..."
+                  placeholder="Search landmark or coordinates on map..."
                   className="h-12 w-full rounded-2xl border border-gray-200 bg-[#f8fafb] pl-12 pr-4 text-sm outline-none focus:border-[#f28a2e]"
                 />
               </div>
