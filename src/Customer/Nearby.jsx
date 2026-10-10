@@ -24,6 +24,7 @@ import {
   LocateFixed,
 } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { supabase } from "../supabaseClient";
 import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
@@ -50,6 +51,70 @@ function MapRecenter({ center }) {
   }, [center, map]);
   return null;
 }
+
+const getCategoryMeta = (category, shopType) => {
+  const cat = (category || "").toLowerCase();
+  if (shopType === "temporary" || cat.includes("thela") || cat.includes("vendor") || cat.includes("moving")) {
+    return { emoji: "🚚", label: "Moving Vendor", color: "#059669", bg: "#ecfdf5", border: "#10b981", isTemp: true };
+  }
+  if (cat.includes("stationery") || cat.includes("book") || cat.includes("study") || cat.includes("pen")) {
+    return { emoji: "📚", label: "Stationery", color: "#7c3aed", bg: "#f5f3ff", border: "#8b5cf6" };
+  }
+  if (cat.includes("grocery") || cat.includes("kirana") || cat.includes("super") || cat.includes("daily") || cat.includes("provision")) {
+    return { emoji: "🛒", label: "Grocery", color: "#c2410c", bg: "#fff7ed", border: "#f97316" };
+  }
+  if (cat.includes("fruit") || cat.includes("vegetable") || cat.includes("sabzi") || cat.includes("kisan")) {
+    return { emoji: "🍎", label: "Fruits & Veg", color: "#15803d", bg: "#f0fdf4", border: "#22c55e" };
+  }
+  if (cat.includes("electronic") || cat.includes("mobile") || cat.includes("gadget") || cat.includes("repair")) {
+    return { emoji: "⚡", label: "Electronics", color: "#0369a1", bg: "#f0f9ff", border: "#0ea5e9" };
+  }
+  if (cat.includes("pharmacy") || cat.includes("chemist") || cat.includes("medical") || cat.includes("wellness")) {
+    return { emoji: "💊", label: "Pharmacy", color: "#b91c1c", bg: "#fef2f2", border: "#ef4444" };
+  }
+  if (cat.includes("clothing") || cat.includes("fashion") || cat.includes("footwear") || cat.includes("wear")) {
+    return { emoji: "👗", label: "Fashion", color: "#be185d", bg: "#fdf2f8", border: "#ec4899" };
+  }
+  if (cat.includes("hardware") || cat.includes("tool") || cat.includes("sanitary") || cat.includes("paint")) {
+    return { emoji: "🛠️", label: "Hardware", color: "#334155", bg: "#f8fafc", border: "#64748b" };
+  }
+  if (cat.includes("sweet") || cat.includes("bakery") || cat.includes("cafe") || cat.includes("restaurant") || cat.includes("food") || cat.includes("namkeen")) {
+    return { emoji: "🥐", label: "Sweets & Food", color: "#b45309", bg: "#fffbeb", border: "#f59e0b" };
+  }
+  return { emoji: "🏪", label: "Local Shop", color: "#113b52", bg: "#edf5f2", border: "#184e6b" };
+};
+
+const createUberPin = (s, isSelected) => {
+  const meta = getCategoryMeta(s?.category, s?.shop_type);
+  const isTemp = s?.shop_type === "temporary" || meta.isTemp;
+
+  const html = `
+    <div style="position: relative; display: flex; flex-direction: column; align-items: center; cursor: pointer; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.18));">
+      ${isTemp ? `
+        <span style="position: absolute; top: -5px; left: -5px; right: -5px; bottom: -5px; border-radius: 20px; background: rgba(16, 185, 129, 0.35); animation: ping 1.4s cubic-bezier(0, 0, 0.2, 1) infinite;"></span>
+      ` : ""}
+      
+      <div style="background-color: ${meta.bg}; border: 2.5px solid ${meta.border}; width: 44px; height: 44px; border-radius: 14px; display: flex; align-items: center; justify-content: center; transform: scale(${isSelected ? 1.2 : 1}); transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1); box-shadow: 0 4px 12px rgba(0,0,0,0.12); position: relative; z-index: 2;">
+        <span style="font-size: 21px; line-height: 1; user-select: none;">${meta.emoji}</span>
+        ${isTemp ? `<span style="position: absolute; top: -3px; right: -3px; width: 10px; height: 10px; border-radius: 9999px; background: #10b981; border: 2px solid white; box-shadow: 0 0 6px #10b981;"></span>` : ""}
+      </div>
+      
+      <div style="width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-top: 7px solid ${meta.border}; margin-top: -1px; z-index: 1;"></div>
+      
+      <div style="margin-top: 3px; padding: 2px 7px; border-radius: 6px; background: #0f2c3d; color: #ffffff; font-size: 10px; font-weight: 700; white-space: nowrap; max-width: 100px; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 6px rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.25); letter-spacing: 0.02em;">
+        ${s?.shop_name || "Shop"}
+      </div>
+    </div>
+  `;
+
+  return L.divIcon({
+    html,
+    className: "uber-shop-pin",
+    iconSize: [44, 66],
+    iconAnchor: [22, 66],
+    popupAnchor: [0, -68],
+  });
+};
 
 const AVAILABLE_RADII = ["2 km", "3 km", "5 km", "8 km", "10 km"];
 
@@ -135,8 +200,21 @@ const Nearby = () => {
     };
 
     loadNearbyData();
+
+    // Realtime channel: if temporary moving vendors update GPS or inventory changes
+    const channel = supabase
+      .channel("nearby-map-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "shops" }, () => {
+        loadNearbyData();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => {
+        loadNearbyData();
+      })
+      .subscribe();
+
     return () => {
       active = false;
+      supabase.removeChannel(channel);
     };
   }, [selectedRadius, query, coords]);
   const toggleSaved = (productId) => {
@@ -307,39 +385,73 @@ const Nearby = () => {
                 {shops.map((s) => {
                   const lat = Number(s.latitude);
                   const lng = Number(s.longitude);
-                  if (!lat || !lng || isNaN(lat) || isNaN(lng)) return null;
+                  const meta = getCategoryMeta(s.category, s.shop_type);
+                  const isTemp = s.shop_type === "temporary" || meta.isTemp;
 
                   return (
                     <Marker
                       key={s.id}
                       position={[lat, lng]}
+                      icon={createUberPin(s, selectedShopId === s.id)}
                       eventHandlers={{
                         click: () => setSelectedShopId(s.id),
                       }}
                     >
-                      <Popup>
-                        <div className="p-1 min-w-[210px] text-left">
-                          {s.shop_image && (
-                            <img
-                              src={s.shop_image}
-                              alt={s.shop_name}
-                              className="h-24 w-full object-cover rounded mb-2"
-                            />
+                      <Popup className="uber-shop-popup">
+                        <div className="p-1 min-w-[230px] max-w-[260px] text-left font-sans">
+                          {s.shop_image ? (
+                            <div className="relative mb-2.5 overflow-hidden rounded-xl">
+                              <img
+                                src={s.shop_image}
+                                alt={s.shop_name}
+                                className="h-28 w-full object-cover transition-transform duration-300 hover:scale-105"
+                              />
+                              <span
+                                style={{ backgroundColor: meta.bg, color: meta.color, borderColor: meta.border }}
+                                className="absolute left-2 top-2 flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold shadow-sm backdrop-blur-md"
+                              >
+                                <span>{meta.emoji}</span>
+                                <span>{meta.label}</span>
+                              </span>
+                              {isTemp && (
+                                <span className="absolute right-2 top-2 flex items-center gap-1 rounded-full bg-emerald-600 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white shadow-sm">
+                                  <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse"></span>
+                                  Moving
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="mb-2 flex items-center gap-1.5">
+                              <span
+                                style={{ backgroundColor: meta.bg, color: meta.color, borderColor: meta.border }}
+                                className="inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-bold"
+                              >
+                                <span>{meta.emoji}</span>
+                                <span>{meta.label}</span>
+                              </span>
+                            </div>
                           )}
-                          <h4 className="font-bold text-sm text-[#113b52]">{s.shop_name}</h4>
-                          <p className="text-xs text-[#f28a2e] font-semibold">{s.category}</p>
-                          <p className="text-xs text-gray-600 mt-0.5">{s.address || s.current_area || "Mandsaur"}</p>
-                          <div className="flex items-center gap-1.5 mt-2 text-xs font-bold text-[#b75d17]">
-                            <span>⭐ {s.avg_rating || "4.6"}</span>
-                            <span className="text-gray-400 font-normal">({s.reviews_count || 5} reviews)</span>
+
+                          <h4 className="text-base font-bold text-[#113b52] leading-tight">{s.shop_name}</h4>
+                          <p className="mt-1 text-xs text-gray-500 line-clamp-1">{s.address || s.current_area || "Mandsaur"}</p>
+
+                          <div className="mt-2.5 flex items-center justify-between border-t border-gray-100 pt-2 text-xs">
+                            <div className="flex items-center gap-1 font-bold text-[#b75d17]">
+                              <span>⭐ {s.avg_rating || "4.6"}</span>
+                              <span className="text-gray-400 font-normal">({s.reviews_count || 5})</span>
+                            </div>
+                            <span className="rounded-md bg-[#edf7f0] px-2 py-0.5 font-bold text-[#2d6a4f] text-[11px]">
+                              {s.distance || "Nearby"}
+                            </span>
                           </div>
-                          <p className="text-xs font-semibold text-[#3b806a] mt-1">{s.distance || "Nearby"} away</p>
+
                           <button
                             type="button"
                             onClick={() => navigate(`/CustomerShopDetails/${s.id}`)}
-                            className="mt-2.5 w-full bg-[#113b52] text-white py-1.5 text-xs font-bold rounded hover:bg-[#184e6b] transition"
+                            className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#113b52] py-2 text-xs font-bold text-white shadow-sm transition hover:bg-[#184e6b]"
                           >
-                            View Shop & Products
+                            <span>Explore Products</span>
+                            <ArrowUpRight size={14} />
                           </button>
                         </div>
                       </Popup>

@@ -51,8 +51,7 @@ export async function getNearbyShops(userLat = MANDSAUR_COORDS.lat, userLng = MA
     // 2. Fallback to direct shops table query
     const { data: tableData, error: tableError } = await supabase
       .from("shops")
-      .select("*")
-      .eq("is_live", true);
+      .select("*");
 
     if (!tableError && Array.isArray(tableData) && tableData.length > 0) {
       return tableData
@@ -156,47 +155,67 @@ async function fetchProductsAtRadius(userLat, userLng, radiusKm, searchText = ""
       return rpcData.map((p) => formatProduct(p));
     }
 
-    // 2. Fallback to direct products table + joined shops table
-    let query = supabase.from("products").select("*, shops(*)");
-    if (cleanSearch) {
-      query = query.or(`title.ilike.%${cleanSearch}%,category.ilike.%${cleanSearch}%`);
-    }
+    // 2. Direct products query + resilient shops join
+    const { data: dbProducts, error: pErr } = await supabase
+      .from("products")
+      .select("*")
+      .eq("status", "active")
+      .order("created_at", { ascending: false });
 
-    const { data: tableData, error: tableError } = await query;
-    if (!tableError && Array.isArray(tableData) && tableData.length > 0) {
-      const enriched = tableData
-        .map((p) => {
-          const shop = p.shops || {};
-          const dist = calculateDistanceKm(userLat, userLng, shop.latitude, shop.longitude);
-          return {
-            id: p.id,
-            name: p.title,
-            title: p.title,
-            category: p.category,
-            details: p.description || "",
-            description: p.description || "",
-            price: Number(p.price) || 0,
-            shopId: p.shop_id,
-            shop: shop.shop_name || "Local Shop",
-            shopName: shop.shop_name || "Local Shop",
-            shopAddress: shop.address || shop.landmark || "Mandsaur",
-            shopLatitude: shop.latitude,
-            shopLongitude: shop.longitude,
-            shopType: shop.shop_type || "permanent",
-            isLive: shop.is_live,
-            currentArea: shop.current_area,
-            distance: dist != null ? `${dist} km` : "Nearby",
-            distanceKm: dist,
-            stock: Number(p.stock) > 0 ? "In stock" : "Out of stock",
-            stockQuantity: Number(p.stock) || 0,
-            image: p.image_url || "https://images.unsplash.com/photo-1598327105666-5b89351aff97?auto=format&fit=crop&w=700&q=85",
-            emoji: "📦",
-          };
-        })
-        .filter((p) => p.distanceKm == null || p.distanceKm <= radiusKm)
-        .sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
+    if (!pErr && Array.isArray(dbProducts) && dbProducts.length > 0) {
+      // Fetch shops for these products
+      const shopIds = [...new Set(dbProducts.map((p) => p.shop_id).filter(Boolean))];
+      let shopsMap = {};
+      if (shopIds.length > 0) {
+        const { data: dbShops } = await supabase.from("shops").select("*").in("id", shopIds);
+        if (dbShops) {
+          dbShops.forEach((s) => {
+            shopsMap[s.id] = s;
+          });
+        }
+      }
 
-      if (enriched.length > 0) return enriched;
+      const enriched = dbProducts.map((p) => {
+        const shop = shopsMap[p.shop_id] || {};
+        const dist = calculateDistanceKm(userLat, userLng, shop.latitude, shop.longitude);
+        return {
+          id: p.id,
+          name: p.title,
+          title: p.title,
+          category: p.category || "General",
+          details: p.description || "",
+          description: p.description || "",
+          price: Number(p.price) || 0,
+          shopId: p.shop_id,
+          shop: shop.shop_name || "Local Shop",
+          shopName: shop.shop_name || "Local Shop",
+          shopAddress: shop.address || shop.landmark || "Mandsaur",
+          shopLatitude: shop.latitude,
+          shopLongitude: shop.longitude,
+          shopType: shop.shop_type || "permanent",
+          isLive: shop.is_live !== false,
+          currentArea: shop.current_area || "",
+          distance: dist != null ? `${dist} km` : "Nearby",
+          distanceKm: dist,
+          stock: Number(p.stock) > 0 ? "In stock" : "Out of stock",
+          stockQuantity: Number(p.stock) || 0,
+          image: p.image_url || "https://images.unsplash.com/photo-1598327105666-5b89351aff97?auto=format&fit=crop&w=700&q=85",
+          emoji: "📦",
+        };
+      });
+
+      const filtered = enriched.filter((p) => {
+        if (cleanSearch) {
+          const s = cleanSearch.toLowerCase();
+          const matchTitle = (p.title || "").toLowerCase().includes(s);
+          const matchCat = (p.category || "").toLowerCase().includes(s);
+          const matchShop = (p.shopName || "").toLowerCase().includes(s);
+          if (!matchTitle && !matchCat && !matchShop) return false;
+        }
+        return p.distanceKm == null || p.distanceKm <= radiusKm;
+      });
+
+      if (filtered.length > 0) return filtered;
     }
   } catch (err) {
     console.warn("fetchProductsAtRadius error:", err);

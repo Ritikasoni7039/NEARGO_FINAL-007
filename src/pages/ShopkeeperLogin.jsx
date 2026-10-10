@@ -32,6 +32,24 @@ const ShopkeeperLogin = () => {
         throw new Error("Login failed. No active session found.");
       }
 
+      // 1.5 Verify that user profile actually exists in 'profiles' table
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (!profileData) {
+        await supabase.auth.signOut();
+        throw new Error("This seller profile has been deleted or deactivated. You cannot log in.");
+      }
+
+      // Check role - Customer should not access seller workspace
+      if (profileData.role === "customer") {
+        await supabase.auth.signOut();
+        throw new Error("This account is registered as a Customer. Please log in from the Customer Login page.");
+      }
+
       // 2. Fetch shop details for this owner from 'shops' table
       const { data: shopData, error: shopErr } = await supabase
         .from("shops")

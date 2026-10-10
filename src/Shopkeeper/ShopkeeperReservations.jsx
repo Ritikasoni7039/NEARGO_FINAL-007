@@ -70,6 +70,20 @@ export default function ShopkeeperReservations() {
     };
 
     fetchReservations();
+
+    // Realtime subscription: ding & update immediately when a customer creates/updates an order
+    const channel = supabase
+      .channel("seller-reservations-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => {
+        fetchReservations();
+        setNotice("Live order update received!");
+        setTimeout(() => setNotice(""), 3000);
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const counts = useMemo(() => tabs.reduce((all, tab) => ({ ...all, [tab]: tab === "All" ? reservations.length : reservations.filter((item) => item.status === tab).length }), {}), [reservations]);

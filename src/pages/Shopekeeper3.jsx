@@ -133,6 +133,8 @@ const handleCompleteRegistration = async (e) => {
 
       const userId = sessionData.session.user.id;
 
+      const specificRole = savedShopData.shopType === "temporary" ? "shopkeeper_temporary" : "shopkeeper_permanent";
+
       // Password set karo via updateUser (user already authenticated hai OTP se)
       const { error: updateErr } = await supabase.auth.updateUser({
         password: password,
@@ -140,7 +142,7 @@ const handleCompleteRegistration = async (e) => {
           full_name: savedShopData.ownerName || "",
           phone: savedShopData.mobile || "",
           username: username.trim(),
-          role: "shopkeeper"
+          role: specificRole
         }
       });
 
@@ -166,51 +168,73 @@ const handleCompleteRegistration = async (e) => {
         }
       }
 
-      // Shop data ko shops table mein insert karo
-      const { error: shopError } = await supabase.from("shops").insert([
+      // 1. Pehle profiles table mein upsert karo (Foreign key requirement ke liye)
+      const { error: profileErr } = await supabase.from("profiles").upsert([
         {
-          owner_id: userId,
-          shop_name: savedShopData.shopName,
-          category: savedShopData.category,
-          shop_type: savedShopData.shopType,
-          sub_type: savedShopData.subType || null,
-          address: savedShopData.address || savedShopData.approximateArea || "",
-          landmark: savedShopData.landmark || "",
-          city: savedShopData.city || "Mandsaur",
-          pincode: savedShopData.pincode || "458001",
-          latitude: savedShopData.latitude || null,
-          longitude: savedShopData.longitude || null,
-          shop_image: savedShopData.shopImage || avatarUrl || null,
-          opening_time: savedShopData.openingTime || null,
-          closing_time: savedShopData.closingTime || null,
-          temporary_duration: savedShopData.temporaryDuration || null,
-          description: savedShopData.description || null,
+          id: userId,
+          email: cleanEmail,
+          full_name: savedShopData.ownerName || "",
+          phone: savedShopData.mobile || "",
+          role: specificRole,
+          username: username.trim(),
+          avatar_url: avatarUrl,
         },
       ]);
 
-      if (shopError) {
-        console.error("Shop insert error:", shopError);
+      if (profileErr) {
+        console.error("Profile upsert error:", profileErr);
+        throw profileErr;
       }
 
-      // Sync to profiles table if available
-      try {
-        await supabase.from("profiles").upsert([
-          {
-            id: userId,
-            email: cleanEmail,
-            full_name: savedShopData.ownerName || "",
-            phone: savedShopData.mobile || "",
-            role: "shopkeeper",
-            username: username.trim(),
-            avatar_url: avatarUrl,
-          },
-        ]);
-      } catch (pErr) {
-        console.warn("Profile sync warning:", pErr);
+      // 2. Uske baad shops table mein insert/update karo
+      const shopPayload = {
+        owner_id: userId,
+        shop_name: savedShopData.shopName || "My Shop",
+        category: savedShopData.category || "General Store",
+        shop_type: savedShopData.shopType || "permanent",
+        sub_type: savedShopData.subType || null,
+        address: savedShopData.address || savedShopData.approximateArea || "Mandsaur",
+        landmark: savedShopData.landmark || "",
+        city: savedShopData.city || "Mandsaur",
+        pincode: savedShopData.pincode || "458001",
+        latitude: savedShopData.latitude || 24.0722,
+        longitude: savedShopData.longitude || 75.0683,
+        shop_image: savedShopData.shopImage || avatarUrl || "https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=800&auto=format&fit=crop&q=80",
+        opening_time: savedShopData.openingTime || "09:00 AM",
+        closing_time: savedShopData.closingTime || "09:00 PM",
+        temporary_duration: savedShopData.temporaryDuration || null,
+        description: savedShopData.description || null,
+        is_live: true,
+      };
+
+      let finalShopId = null;
+      const { data: existingShop } = await supabase
+        .from("shops")
+        .select("id")
+        .eq("owner_id", userId)
+        .maybeSingle();
+
+      if (existingShop?.id) {
+        const { error: updateShopErr } = await supabase
+          .from("shops")
+          .update(shopPayload)
+          .eq("id", existingShop.id);
+        if (updateShopErr) throw updateShopErr;
+        finalShopId = existingShop.id;
+      } else {
+        const { data: newShop, error: insertShopErr } = await supabase
+          .from("shops")
+          .insert([shopPayload])
+          .select("id")
+          .single();
+        if (insertShopErr) throw insertShopErr;
+        finalShopId = newShop?.id;
       }
 
-      // Cache active shop in localStorage for immediate dashboard rendering
+      // 3. Cache active shop in localStorage with real shop ID for immediate inventory sync
       const activeShopObj = {
+        id: finalShopId,
+        shopName: savedShopData.shopName,
         name: savedShopData.shopName,
         ownerName: savedShopData.ownerName,
         category: savedShopData.category,
@@ -219,6 +243,8 @@ const handleCompleteRegistration = async (e) => {
         email: cleanEmail,
         shopType: savedShopData.shopType || "permanent",
         subType: savedShopData.subType || "",
+        latitude: savedShopData.latitude || 24.0722,
+        longitude: savedShopData.longitude || 75.0683,
         openingTime: savedShopData.openingTime || "09:00 AM",
         closingTime: savedShopData.closingTime || "09:00 PM",
         shopImage: savedShopData.shopImage || avatarUrl || null,

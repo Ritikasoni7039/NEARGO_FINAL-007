@@ -416,15 +416,33 @@ export default function ShopkeeperProfile() {
                       onChange={(e) => setDraft({ ...draft, category: e.target.value })}
                       className="mt-1 w-full rounded-xl border border-gray-200 bg-white p-3 text-sm outline-none focus:border-[#f28a2e]"
                     >
+                      {draft.category && ![
+                        "Grocery & Daily Essentials", "Grocery Store", "Stationery & Books", "Stationery & Study Essentials",
+                        "Electronics", "Mobile & Accessories", "Fresh Fruits & Vegetables", "Pharmacy", "Pharmacy & Wellness",
+                        "Clothing & Footwear", "Clothing & Fashion", "Hardware & Tools", "Sweets, Bakery & Snacks",
+                        "Restaurant", "Cafe & Bakery", "Beauty & Cosmetics", "Furniture", "Jewellery", "Other"
+                      ].includes(draft.category) && (
+                        <option value={draft.category}>{draft.category}</option>
+                      )}
                       <option>Grocery & Daily Essentials</option>
-                      <option>Fresh Fruits & Vegetables</option>
-                      <option>Home & Electrical Essentials</option>
-                      <option>Hardware & Tools</option>
+                      <option>Grocery Store</option>
+                      <option>Stationery & Books</option>
                       <option>Stationery & Study Essentials</option>
-                      <option>Clothing & Footwear</option>
-                      <option>Sweets, Bakery & Snacks</option>
+                      <option>Electronics</option>
+                      <option>Mobile & Accessories</option>
+                      <option>Fresh Fruits & Vegetables</option>
                       <option>Pharmacy & Wellness</option>
-                      <option>Handmade Gifts & Flowers</option>
+                      <option>Pharmacy</option>
+                      <option>Clothing & Footwear</option>
+                      <option>Clothing & Fashion</option>
+                      <option>Hardware & Tools</option>
+                      <option>Sweets, Bakery & Snacks</option>
+                      <option>Restaurant</option>
+                      <option>Cafe & Bakery</option>
+                      <option>Beauty & Cosmetics</option>
+                      <option>Furniture</option>
+                      <option>Jewellery</option>
+                      <option>Other</option>
                     </select>
                   </div>
                   <div>

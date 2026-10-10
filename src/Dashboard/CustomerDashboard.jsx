@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "../supabaseClient";
 import SearchBar from "../Customer/Components/SearchBar";
 import {
   getNearbyProducts,
@@ -113,7 +114,7 @@ const CustomerDashboard = () => {
     }
   }, []);
 
-  // Fetch live products from Supabase with sequential radius search
+  // Fetch live products from Supabase with sequential radius search + Realtime listener
   useEffect(() => {
     let isCancelled = false;
     const fetchLiveProducts = async () => {
@@ -134,8 +135,21 @@ const CustomerDashboard = () => {
     };
 
     fetchLiveProducts();
+
+    // Realtime updates: when shopkeeper inserts, updates or confirms stock
+    const channel = supabase
+      .channel("customer-dashboard-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => {
+        fetchLiveProducts();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "shops" }, () => {
+        fetchLiveProducts();
+      })
+      .subscribe();
+
     return () => {
       isCancelled = true;
+      supabase.removeChannel(channel);
     };
   }, [radius, search, coords]);
 

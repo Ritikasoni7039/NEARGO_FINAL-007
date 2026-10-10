@@ -49,11 +49,38 @@ export default function ShopkeeperInventory() {
 
         let shopId = null;
         if (user) {
-          const { data: shopData } = await supabase
+          let { data: shopData } = await supabase
             .from("shops")
             .select("*")
             .eq("owner_id", user.id)
             .maybeSingle();
+
+          // Auto-create shop if missing so shopId is never null
+          if (!shopData) {
+            const savedLocal = JSON.parse(localStorage.getItem("nearGoActiveShop") || "null");
+            const { data: prof } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+            
+            const newShopPayload = {
+              owner_id: user.id,
+              shop_name: savedLocal?.shopName || savedLocal?.name || (prof?.full_name ? `${prof.full_name}'s Store` : "My Shop"),
+              category: savedLocal?.category || "General Store",
+              shop_type: savedLocal?.shopType || "permanent",
+              address: savedLocal?.address || "Mandsaur",
+              city: "Mandsaur",
+              pincode: "458001",
+              latitude: 24.0722,
+              longitude: 75.0683,
+              is_live: true,
+            };
+
+            const { data: createdShop } = await supabase
+              .from("shops")
+              .insert([newShopPayload])
+              .select()
+              .maybeSingle();
+
+            if (createdShop) shopData = createdShop;
+          }
 
           if (shopData) {
             shopId = shopData.id;
@@ -102,6 +129,17 @@ export default function ShopkeeperInventory() {
     };
 
     fetchShopAndProducts();
+
+    const channel = supabase
+      .channel("seller-inventory-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "products" }, () => {
+        fetchShopAndProducts();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const saveProductsLocal = (next) => {
@@ -277,9 +315,20 @@ export default function ShopkeeperInventory() {
         setNotice("Product details updated & stock verified!");
       } else {
         let insertedId = Date.now();
-        if (currentShopId) {
+        let targetShopId = currentShopId;
+
+        if (!targetShopId) {
+          const { data: sData } = await supabase.auth.getSession();
+          const uid = sData?.session?.user?.id;
+          if (uid) {
+            const { data: sh } = await supabase.from("shops").select("id").eq("owner_id", uid).maybeSingle();
+            if (sh?.id) targetShopId = sh.id;
+          }
+        }
+
+        if (targetShopId) {
           const { data, error } = await supabase.from("products").insert([{
-            shop_id: currentShopId,
+            shop_id: targetShopId,
             title: nextProduct.name,
             category: nextProduct.category,
             price: nextProduct.price,
@@ -290,12 +339,17 @@ export default function ShopkeeperInventory() {
             image_url: "https://images.unsplash.com/photo-1598327105666-5b89351aff97?auto=format&fit=crop&w=700&q=85",
           }]).select().single();
 
-          if (!error && data) {
+          if (error) {
+            console.error("Supabase product insert error:", error);
+            setNotice(`Database sync warning: ${error.message}`);
+          } else if (data) {
             insertedId = data.id;
+            setNotice("Product saved to Supabase backend & inventory!");
           }
         }
-        saveProductsLocal([{ ...nextProduct, id: insertedId, shopId: currentShopId || currentShop.id }, ...products]);
-        setNotice("Product added to inventory!");
+
+        saveProductsLocal([{ ...nextProduct, id: insertedId, shopId: targetShopId || currentShop.id }, ...products]);
+        if (!notice) setNotice("Product added to inventory!");
       }
     } catch (err) {
       console.error("Save product error:", err);
@@ -472,7 +526,7 @@ export default function ShopkeeperInventory() {
         }}
       />
 
-      {formOpen && <div className="fixed inset-0 z-[80] flex items-end justify-center bg-[#102a36]/45 p-3 sm:items-center"><form onSubmit={submitForm} className="w-full max-w-xl border border-[#e3e1d9] bg-[#fffdfa] p-5 shadow-2xl sm:p-7"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-[#f28a2e]">Inventory editor</p><h3 className="mt-2 text-2xl font-semibold">{editingId ? "Edit product" : "Add a product"}</h3></div><button type="button" onClick={() => setFormOpen(false)} className="rounded-full bg-[#f0f1ed] p-2 text-[#5e6d75]" aria-label="Close product form"><X size={18} /></button></div><div className="mt-6 grid gap-5 sm:grid-cols-2"><label className="sm:col-span-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-[#7c8583]">Product name</span><input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. Philips LED Bulb" className="mt-2 w-full border-b border-[#cfd5d1] bg-transparent py-3 text-sm outline-none focus:border-[#f28a2e]" /></label><label><span className="text-xs font-bold uppercase tracking-[0.12em] text-[#7c8583]">Category</span><select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} className="mt-2 w-full border-b border-[#cfd5d1] bg-transparent py-3 text-sm outline-none focus:border-[#f28a2e]"><option>Electrical</option><option>Switches</option><option>Wiring</option><option>Lighting</option></select></label><label><span className="text-xs font-bold uppercase tracking-[0.12em] text-[#7c8583]">Emoji</span><input value={form.emoji} onChange={(event) => setForm({ ...form, emoji: event.target.value })} className="mt-2 w-full border-b border-[#cfd5d1] bg-transparent py-3 text-sm outline-none focus:border-[#f28a2e]" /></label><label><span className="text-xs font-bold uppercase tracking-[0.12em] text-[#7c8583]">Price (₹)</span><input required min="0" type="number" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} placeholder="149" className="mt-2 w-full border-b border-[#cfd5d1] bg-transparent py-3 text-sm outline-none focus:border-[#f28a2e]" /></label><label><span className="text-xs font-bold uppercase tracking-[0.12em] text-[#7c8583]">Quantity</span><input required min="0" type="number" value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} placeholder="24" className="mt-2 w-full border-b border-[#cfd5d1] bg-transparent py-3 text-sm outline-none focus:border-[#f28a2e]" /></label><label className="sm:col-span-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-[#7c8583]">Short details</span><input value={form.details} onChange={(event) => setForm({ ...form, details: event.target.value })} placeholder="9W · Cool Day Light" className="mt-2 w-full border-b border-[#cfd5d1] bg-transparent py-3 text-sm outline-none focus:border-[#f28a2e]" /></label></div><button type="submit" className="mt-7 flex w-full items-center justify-center gap-2 bg-[#f28a2e] px-5 py-3 text-sm font-bold text-white"><Check size={17} /> {editingId ? "Save changes" : "Add product"}</button></form></div>}
+      {formOpen && <div className="fixed inset-0 z-[80] flex items-end justify-center bg-[#102a36]/45 p-3 sm:items-center"><form onSubmit={submitForm} className="w-full max-w-xl border border-[#e3e1d9] bg-[#fffdfa] p-5 shadow-2xl sm:p-7"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[0.18em] text-[#f28a2e]">Inventory editor</p><h3 className="mt-2 text-2xl font-semibold">{editingId ? "Edit product" : "Add a product"}</h3></div><button type="button" onClick={() => setFormOpen(false)} className="rounded-full bg-[#f0f1ed] p-2 text-[#5e6d75]" aria-label="Close product form"><X size={18} /></button></div><div className="mt-6 grid gap-5 sm:grid-cols-2"><label className="sm:col-span-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-[#7c8583]">Product name</span><input required value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="e.g. Philips LED Bulb" className="mt-2 w-full border-b border-[#cfd5d1] bg-transparent py-3 text-sm outline-none focus:border-[#f28a2e]" /></label><label><span className="text-xs font-bold uppercase tracking-[0.12em] text-[#7c8583]">Category</span><select value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} className="mt-2 w-full border-b border-[#cfd5d1] bg-transparent py-3 text-sm outline-none focus:border-[#f28a2e]"><option>Grocery & Kirana</option><option>Stationery & Books</option><option>Fresh Fruits & Vegetables</option><option>Electronics & Mobile</option><option>Pharmacy & Wellness</option><option>Clothing & Footwear</option><option>Hardware & Tools</option><option>Sweets & Bakery</option><option>General Store</option></select></label><label><span className="text-xs font-bold uppercase tracking-[0.12em] text-[#7c8583]">Emoji</span><input value={form.emoji} onChange={(event) => setForm({ ...form, emoji: event.target.value })} className="mt-2 w-full border-b border-[#cfd5d1] bg-transparent py-3 text-sm outline-none focus:border-[#f28a2e]" /></label><label><span className="text-xs font-bold uppercase tracking-[0.12em] text-[#7c8583]">Price (₹)</span><input required min="0" type="number" value={form.price} onChange={(event) => setForm({ ...form, price: event.target.value })} placeholder="149" className="mt-2 w-full border-b border-[#cfd5d1] bg-transparent py-3 text-sm outline-none focus:border-[#f28a2e]" /></label><label><span className="text-xs font-bold uppercase tracking-[0.12em] text-[#7c8583]">Quantity</span><input required min="0" type="number" value={form.quantity} onChange={(event) => setForm({ ...form, quantity: event.target.value })} placeholder="24" className="mt-2 w-full border-b border-[#cfd5d1] bg-transparent py-3 text-sm outline-none focus:border-[#f28a2e]" /></label><label className="sm:col-span-2"><span className="text-xs font-bold uppercase tracking-[0.12em] text-[#7c8583]">Short details</span><input value={form.details} onChange={(event) => setForm({ ...form, details: event.target.value })} placeholder="9W · Cool Day Light" className="mt-2 w-full border-b border-[#cfd5d1] bg-transparent py-3 text-sm outline-none focus:border-[#f28a2e]" /></label></div><button type="submit" className="mt-7 flex w-full items-center justify-center gap-2 bg-[#f28a2e] px-5 py-3 text-sm font-bold text-white"><Check size={17} /> {editingId ? "Save changes" : "Add product"}</button></form></div>}
 
       <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-[#dfe3de] bg-[#fffdfa]/95 pb-[calc(0.45rem+env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl"><div className="mx-auto flex max-w-xl items-center justify-around"><ShopNav icon={<Home />} label="Dashboard" onClick={() => navigate("/ShopkeeperDashboard")} /><ShopNav icon={<Package />} label="Inventory" active onClick={() => navigate("/ShopkeeperInventory")} /><ShopNav icon={<Users />} label="Requests" onClick={() => navigate("/ShopkeeperReservations")} /><ShopNav icon={<User />} label="Profile" onClick={() => navigate("/ShopkeeperProfile")} /></div></nav>
     </main>

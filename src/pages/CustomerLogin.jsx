@@ -54,6 +54,23 @@ const CustomerLogin = () => {
       if (error) throw error;
 
       if (data?.session) {
+        const user = data.session.user;
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (!profileData) {
+          await supabase.auth.signOut();
+          throw new Error("This account profile has been deleted or deactivated. You cannot log in.");
+        }
+
+        if (profileData.role && profileData.role.startsWith("shopkeeper")) {
+          await supabase.auth.signOut();
+          throw new Error("This account is registered as a Shopkeeper. Please log in from the Shopkeeper Login page.");
+        }
+
         navigate("/CustomerDashboard");
       }
     }  catch (err) {
