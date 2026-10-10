@@ -262,10 +262,9 @@ const ShopkeeperSignup = () => {
 
       if (otpError) {
         console.warn("OTP send warning:", otpError.message);
-        // If it's a rate limit warning, we still proceed to OTP page where user can enter previously sent code or wait
-        if (otpError.message && !otpError.message.toLowerCase().includes("security") && !otpError.message.toLowerCase().includes("rate")) {
-          throw otpError;
-        }
+        sessionStorage.setItem("nearGoOtpWarning", otpError.message);
+      } else {
+        sessionStorage.removeItem("nearGoOtpWarning");
       }
 
       const shopkeeperData = {
@@ -479,11 +478,53 @@ const ShopkeeperSignup = () => {
         </form>
 
         {cameraModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-            <div className="w-full max-w-md bg-white p-5 rounded-3xl flex flex-col items-center">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="relative w-full max-w-md bg-white p-5 rounded-3xl flex flex-col items-center">
+              <div className="flex items-center justify-between w-full mb-4">
+                <h3 className="text-base font-bold text-[#0b2940]">Take Shop Photo</h3>
+                <button type="button" onClick={stopCamera} className="h-9 w-9 flex items-center justify-center rounded-full bg-gray-100 text-gray-500 hover:bg-gray-200">
+                  <X size={18} />
+                </button>
+              </div>
               <video ref={videoRef} autoPlay playsInline className="w-full h-72 bg-black rounded-2xl object-cover mb-4" />
               <canvas ref={canvasRef} className="hidden" />
               <button type="button" onClick={capturePhoto} className="h-14 w-full rounded-full bg-[#ffae00] text-white font-bold">Capture Photo</button>
+            </div>
+          </div>
+        )}
+
+        {/* Location Search Modal */}
+        {locationPanelOpen && (
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+            <div className="w-full max-w-md bg-white rounded-3xl p-5 shadow-2xl max-h-[80vh] flex flex-col">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="font-bold text-[#0b2940]">Search Shop Address</h3>
+                <button type="button" onClick={() => setLocationPanelOpen(false)} className="rounded-full bg-gray-100 p-1.5 text-gray-500 hover:bg-gray-200">
+                  <X size={18} />
+                </button>
+              </div>
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Type street, landmark or area..."
+                className="h-12 w-full rounded-xl border border-gray-200 bg-gray-50 px-4 text-sm outline-none focus:border-[#ffae00] mb-3"
+              />
+              <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+                {suggestions.map((item, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => selectLocationFromSearch(item)}
+                    className="w-full text-left py-2.5 px-2 text-xs text-gray-700 hover:bg-orange-50 hover:text-[#ffae00] truncate transition"
+                  >
+                    {item.display_name}
+                  </button>
+                ))}
+                {search.length >= 3 && suggestions.length === 0 && (
+                  <p className="py-4 text-center text-xs text-gray-400">No matching locations found.</p>
+                )}
+              </div>
             </div>
           </div>
         )}

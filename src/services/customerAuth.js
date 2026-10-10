@@ -5,52 +5,29 @@ export const generate8DigitOTP = () => {
   return Math.floor(10000000 + Math.random() * 90000000).toString();
 };
 
-// 1. Send 8-digit OTP to Customer Email
+// 1. Send OTP to Customer Email via Supabase Auth
 export const sendCustomerOTP = async (email) => {
-  const otp = generate8DigitOTP();
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes validity
-
-  // Purane OTP delete karke naya save karo
-  await supabase.from('email_otps').delete().eq('email', email);
-  
-  const { error: dbError } = await supabase.from('email_otps').insert([
-    { email, otp, expires_at: expiresAt.toISOString() }
-  ]);
-
-  if (dbError) throw dbError;
-
-  // Supabase Auth ke zariye email trigger
-  // Agar Custom SMTP configured hai, toh yeh aapke Gmail se jayega
-  const { error: authError } = await supabase.auth.signInWithOtp({
-    email: email,
+  const { error } = await supabase.auth.signInWithOtp({
+    email: email.trim().toLowerCase(),
     options: {
-      data: { custom_code: otp }
-    }
+      shouldCreateUser: true,
+    },
   });
 
-  if (authError) throw authError;
-
-  return { success: true, message: 'OTP sent successfully!' };
+  if (error) throw error;
+  return { success: true, message: "OTP sent successfully to your email!" };
 };
 
-// 2. Verify 8-Digit OTP
+// 2. Verify OTP with Supabase Auth
 export const verifyCustomerOTP = async (email, inputOtp) => {
-  const { data, error } = await supabase
-    .from('email_otps')
-    .select('*')
-    .eq('email', email)
-    .eq('otp', inputOtp)
-    .gt('expires_at', new Date().toISOString())
-    .single();
+  const { data, error } = await supabase.auth.verifyOtp({
+    email: email.trim().toLowerCase(),
+    token: inputOtp.trim(),
+    type: "email",
+  });
 
-  if (error || !data) {
-    throw new Error('Invalid ya Expired OTP hai!');
-  }
-
-  // OTP match hone ke baad delete kar do
-  await supabase.from('email_otps').delete().eq('email', email);
-
-  return { success: true };
+  if (error) throw error;
+  return { success: true, user: data?.user || data?.session?.user };
 };
 
 // 3. Customer Sign In with Email & Password (Direct login)

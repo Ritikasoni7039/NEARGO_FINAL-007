@@ -13,6 +13,8 @@ const ShopkeeperOP = () => {
   const savedData = JSON.parse(sessionStorage.getItem("nearGoShopkeeperData") || "{}");
   const email = savedData?.email ? savedData.email.trim().toLowerCase() : "";
 
+  const [notice, setNotice] = useState("");
+
   // Resend countdown timer
   useEffect(() => {
     if (timer <= 0) return;
@@ -30,6 +32,7 @@ const ShopkeeperOP = () => {
 
     setLoading(true);
     setError("");
+    setNotice("");
     try {
       const { error: otpError } = await supabase.auth.signInWithOtp({
         email: email,
@@ -37,7 +40,11 @@ const ShopkeeperOP = () => {
           shouldCreateUser: true,
         },
       });
-      if (otpError) throw otpError;
+      if (otpError) {
+        setError(otpError.message || "Failed to resend OTP.");
+      } else {
+        setNotice("OTP has been resent! Please check your Inbox and Spam/Junk folder.");
+      }
       setTimer(60);
       setOtp("");
     } catch (err) {
@@ -49,7 +56,7 @@ const ShopkeeperOP = () => {
 
   // Verify Real OTP with Supabase
   const handleVerify = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     const cleanOtp = otp.trim();
     if (cleanOtp.length !== 6) {
       setError("Please enter the complete 6-digit OTP.");
@@ -71,7 +78,7 @@ const ShopkeeperOP = () => {
       sessionStorage.setItem("nearGoShopkeeperVerified", "true");
       navigate("/Shopkeeper3rd"); // Move to Step 3 (Password, Username, Profile Picture)
     } catch (err) {
-      setError(err.message || "Invalid or expired OTP code.");
+      setError(err.message || "Invalid or expired OTP code. Please enter the valid code received on your email.");
     } finally {
       setLoading(false);
     }
@@ -103,6 +110,12 @@ const ShopkeeperOP = () => {
             We've sent a 6-digit verification code to:{" "}
             <span className="font-bold text-[#0b2940] break-all">{email || "your email"}</span>
           </p>
+
+          {notice && (
+            <div className="mt-4 p-3 rounded-2xl bg-teal-50 border border-teal-200 text-teal-800 text-xs leading-5">
+              <p className="font-semibold">{notice}</p>
+            </div>
+          )}
         </div>
 
         <form onSubmit={handleVerify} className="space-y-5">
@@ -120,7 +133,7 @@ const ShopkeeperOP = () => {
                 if (error) setError("");
               }}
               placeholder="000000"
-              className="h-16 w-full rounded-2xl border border-gray-200 bg-[#F8FAFB] text-center text-2xl font-extrabold tracking-[10px] text-[#0b2940] outline-none focus:border-[#16b8b5] focus:ring-4 focus:ring-[#16b8b5]/10"
+              className="h-16 w-full rounded-2xl border border-gray-200 bg-[#F8FAFB] text-center text-xl sm:text-2xl font-extrabold tracking-[6px] sm:tracking-[10px] text-[#0b2940] outline-none focus:border-[#16b8b5] focus:ring-4 focus:ring-[#16b8b5]/10"
             />
           </div>
 

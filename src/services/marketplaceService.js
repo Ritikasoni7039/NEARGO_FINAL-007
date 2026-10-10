@@ -27,13 +27,101 @@ export function calculateDistanceKm(lat1, lon1, lat2, lon2) {
 export const MANDSAUR_COORDS = { lat: 24.0722, lng: 75.0683 };
 
 /**
+// Semantic synonyms dictionary for intelligent local marketplace search
+export const SEMANTIC_SYNONYMS = {
+  milk: ["dairy", "doodh", "paneer", "curd", "ghee", "amul", "butter", "malai", "chaas", "dahi"],
+  doodh: ["milk", "dairy", "paneer", "curd", "ghee", "amul", "butter"],
+  medicine: ["dawa", "dawaii", "pharmacy", "medical", "tablet", "syrup", "paracetamol", "capsule", "pain"],
+  dawa: ["medicine", "pharmacy", "medical", "tablet", "syrup", "paracetamol"],
+  fruit: ["seb", "apple", "banana", "kela", "mango", "aam", "orange", "santre", "grapes", "fruits"],
+  apple: ["fruit", "seb", "fruits"],
+  sabzi: ["vegetable", "veggies", "tomato", "potato", "onion", "tamatar", "aloo", "pyaz", "bhindi"],
+  vegetable: ["sabzi", "tamatar", "aloo", "pyaz", "tomato", "potato", "onion"],
+  stationery: ["pen", "copy", "book", "pencil", "notebook", "eraser", "scale", "register", "stationery"],
+  pen: ["stationery", "notebook", "copy", "pencil"],
+  grocery: ["kirana", "atta", "rice", "dal", "oil", "tel", "sugar", "cheeni", "masala", "spices"],
+  kirana: ["grocery", "atta", "rice", "dal", "oil", "sugar", "masala"],
+  mithai: ["sweet", "sweets", "gulab jamun", "jalebi", "laddu", "kaju katli", "rasgulla", "namkeen"],
+  sweet: ["mithai", "sweets", "gulab jamun", "jalebi", "laddu"],
+  snack: ["namkeen", "chips", "kachori", "samosa", "biscuit", "chaat", "fast food", "poha"],
+  hardware: ["tools", "paint", "cement", "drill", "screw", "pipe", "wire", "tap"],
+  fashion: ["cloth", "clothes", "shirt", "pant", "saree", "kurta", "dress"],
+};
+
+export function matchesSemanticSearch(item, searchText) {
+  if (!searchText) return true;
+  const terms = searchText.toLowerCase().split(/\s+/).filter(Boolean);
+  const itemText = `${item.title || item.name || ""} ${item.category || ""} ${item.shop || item.shopName || ""} ${item.description || item.details || ""}`.toLowerCase();
+
+  return terms.some((term) => {
+    if (itemText.includes(term)) return true;
+    const syns = SEMANTIC_SYNONYMS[term] || [];
+    for (const s of syns) {
+      if (itemText.includes(s)) return true;
+    }
+    for (const [key, synonyms] of Object.entries(SEMANTIC_SYNONYMS)) {
+      if (synonyms.includes(term)) {
+        if (itemText.includes(key) || synonyms.some((s) => itemText.includes(s))) {
+          return true;
+        }
+      }
+    }
+    return false;
+  });
+}
+
+/**
  * 1. Fetch nearby shops within a radius (in km)
- * Calls public.nearby_shops(user_lat, user_lng, radius_km)
- * Falls back to querying `shops` table directly or local data if empty.
+ * Tries `seller_profiles` + `seller_locations`, then RPC `nearby_shops`, then `shops` table.
  */
 export async function getNearbyShops(userLat = MANDSAUR_COORDS.lat, userLng = MANDSAUR_COORDS.lng, radiusKm = 5) {
   try {
-    // 1. Try RPC function
+    // 1. Try new schema: seller_profiles joined with seller_locations
+    const { data: sellerData, error: sErr } = await supabase
+      .from("seller_profiles")
+      .select("*, seller_locations(*)");
+
+    if (!sErr && Array.isArray(sellerData) && sellerData.length > 0) {
+      const parsed = sellerData.map((sp) => {
+        const loc = Array.isArray(sp.seller_locations) ? sp.seller_locations[0] : sp.seller_locations;
+        const lat = loc?.latitude || 24.0722;
+        const lng = loc?.longitude || 75.0683;
+        const dist = calculateDistanceKm(userLat, userLng, lat, lng);
+
+        return {
+          id: sp.id,
+          seller_id: sp.id,
+          owner_id: sp.user_id,
+          shop_name: sp.business_name || sp.owner_name || "Local Shop",
+          name: sp.business_name || sp.owner_name || "Local Shop",
+          owner_name: sp.owner_name || "",
+          category: sp.category || "General Store",
+          shop_type: sp.seller_type || "permanent",
+          address: loc?.shop_address || loc?.base_area || "Mandsaur",
+          city: "Mandsaur",
+          latitude: lat,
+          longitude: lng,
+          phone: sp.phone || "",
+          email: sp.email || "",
+          shop_image: sp.photo_url || "https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=800&auto=format&fit=crop&q=80",
+          image: sp.photo_url || "https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=800&auto=format&fit=crop&q=80",
+          is_live: loc?.is_here_now !== false,
+          isLive: loc?.is_here_now !== false,
+          opening_time: loc?.opening_time || "09:00:00",
+          closing_time: loc?.closing_time || "21:00:00",
+          distance: dist != null ? `${dist} km` : "Nearby",
+          distanceKm: dist,
+        };
+      });
+
+      const matched = parsed
+        .filter((s) => s.distanceKm == null || s.distanceKm <= radiusKm)
+        .sort((a, b) => (a.distanceKm ?? 999) - (b.distanceKm ?? 999));
+
+      if (matched.length > 0) return matched;
+    }
+
+    // 2. Try RPC function
     const { data: rpcData, error: rpcError } = await supabase.rpc("nearby_shops", {
       user_lat: Number(userLat),
       user_lng: Number(userLng),
@@ -48,7 +136,7 @@ export async function getNearbyShops(userLat = MANDSAUR_COORDS.lat, userLng = MA
       }));
     }
 
-    // 2. Fallback to direct shops table query
+    // 3. Fallback to direct shops table query
     const { data: tableData, error: tableError } = await supabase
       .from("shops")
       .select("*");
@@ -70,7 +158,7 @@ export async function getNearbyShops(userLat = MANDSAUR_COORDS.lat, userLng = MA
     console.warn("getNearbyShops error:", err);
   }
 
-  // 3. Fallback to mock Mandsaur shops if DB is empty
+  // 4. Fallback to mock Mandsaur shops if DB is empty
   const fallbackList = Object.values(mockShops).map((s, idx) => ({
     id: s.id || `shop-${idx + 1}`,
     shop_name: s.name,
@@ -143,7 +231,55 @@ async function fetchProductsAtRadius(userLat, userLng, radiusKm, searchText = ""
   const cleanSearch = (searchText || "").trim();
 
   try {
-    // 1. Try RPC function
+    // 1. Try new schema: inventory_items joined with seller_profiles and seller_locations
+    const { data: invItems, error: invErr } = await supabase
+      .from("inventory_items")
+      .select("*, seller_profiles(*, seller_locations(*))")
+      .eq("is_available", true);
+
+    if (!invErr && Array.isArray(invItems) && invItems.length > 0) {
+      const enrichedInv = invItems.map((item) => {
+        const seller = item.seller_profiles || {};
+        const loc = Array.isArray(seller.seller_locations) ? seller.seller_locations[0] : seller.seller_locations;
+        const lat = loc?.latitude || 24.0722;
+        const lng = loc?.longitude || 75.0683;
+        const dist = calculateDistanceKm(userLat, userLng, lat, lng);
+
+        return {
+          id: item.id,
+          name: item.item_name,
+          title: item.item_name,
+          category: seller.category || "General",
+          details: `${item.quantity || ''} ${item.unit || ''}`.trim(),
+          description: `${item.item_name} - ${item.quantity || ''} ${item.unit || ''}`,
+          price: Number(item.price) || 0,
+          shopId: seller.id,
+          seller_id: seller.id,
+          shop: seller.business_name || "Local Shop",
+          shopName: seller.business_name || "Local Shop",
+          shopAddress: loc?.shop_address || "Mandsaur",
+          shopLatitude: lat,
+          shopLongitude: lng,
+          shopType: seller.seller_type || "permanent",
+          isLive: loc?.is_here_now !== false,
+          distance: dist != null ? `${dist} km` : "Nearby",
+          distanceKm: dist,
+          stock: (item.quantity && Number(item.quantity) > 0) ? `${item.quantity} ${item.unit || "in stock"}` : "In stock",
+          stockQuantity: Number(item.quantity) || 10,
+          image: "https://images.unsplash.com/photo-1542838132-92c53300491e?auto=format&fit=crop&w=700&q=85",
+          emoji: "📦",
+        };
+      });
+
+      const semanticFiltered = enrichedInv.filter((p) => {
+        if (!cleanSearch) return p.distanceKm == null || p.distanceKm <= radiusKm;
+        return matchesSemanticSearch(p, cleanSearch) && (p.distanceKm == null || p.distanceKm <= radiusKm);
+      });
+
+      if (semanticFiltered.length > 0) return semanticFiltered;
+    }
+
+    // 2. Try RPC function
     const { data: rpcData, error: rpcError } = await supabase.rpc("nearby_products", {
       user_lat: Number(userLat),
       user_lng: Number(userLng),
@@ -155,7 +291,7 @@ async function fetchProductsAtRadius(userLat, userLng, radiusKm, searchText = ""
       return rpcData.map((p) => formatProduct(p));
     }
 
-    // 2. Direct products query + resilient shops join
+    // 3. Fallback to direct products table query + shops join
     const { data: dbProducts, error: pErr } = await supabase
       .from("products")
       .select("*")
@@ -163,7 +299,6 @@ async function fetchProductsAtRadius(userLat, userLng, radiusKm, searchText = ""
       .order("created_at", { ascending: false });
 
     if (!pErr && Array.isArray(dbProducts) && dbProducts.length > 0) {
-      // Fetch shops for these products
       const shopIds = [...new Set(dbProducts.map((p) => p.shop_id).filter(Boolean))];
       let shopsMap = {};
       if (shopIds.length > 0) {
@@ -205,14 +340,8 @@ async function fetchProductsAtRadius(userLat, userLng, radiusKm, searchText = ""
       });
 
       const filtered = enriched.filter((p) => {
-        if (cleanSearch) {
-          const s = cleanSearch.toLowerCase();
-          const matchTitle = (p.title || "").toLowerCase().includes(s);
-          const matchCat = (p.category || "").toLowerCase().includes(s);
-          const matchShop = (p.shopName || "").toLowerCase().includes(s);
-          if (!matchTitle && !matchCat && !matchShop) return false;
-        }
-        return p.distanceKm == null || p.distanceKm <= radiusKm;
+        if (!cleanSearch) return p.distanceKm == null || p.distanceKm <= radiusKm;
+        return matchesSemanticSearch(p, cleanSearch) && (p.distanceKm == null || p.distanceKm <= radiusKm);
       });
 
       if (filtered.length > 0) return filtered;
@@ -221,17 +350,12 @@ async function fetchProductsAtRadius(userLat, userLng, radiusKm, searchText = ""
     console.warn("fetchProductsAtRadius error:", err);
   }
 
-  // 3. Fallback to mock products if Supabase tables are empty
-  const lowerSearch = cleanSearch.toLowerCase();
+  // 4. Fallback to mock products with intelligent semantic search
   return mockProducts
     .filter((p) => {
       const dist = parseFloat(p.distance) || 1.5;
       const matchesDist = dist <= radiusKm;
-      const matchesSearch =
-        !lowerSearch ||
-        p.name.toLowerCase().includes(lowerSearch) ||
-        p.category.toLowerCase().includes(lowerSearch) ||
-        p.shop.toLowerCase().includes(lowerSearch);
+      const matchesSearch = !cleanSearch || matchesSemanticSearch(p, cleanSearch);
       return matchesDist && matchesSearch;
     })
     .map((p) => ({

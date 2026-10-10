@@ -261,13 +261,13 @@ const handleSubmit = async (e) => {
               <div>
                 <label className="mb-2 block text-xs font-bold text-[#0b2940]">Opening Time</label>
                 <div className="flex gap-2">
-                  <select name="openingHour" value={formData.openingHour} onChange={handleChange} className="h-12 rounded-xl border bg-white px-3 text-xs">
+                  <select name="openingHour" value={formData.openingHour} onChange={handleChange} className="h-12 flex-1 min-w-0 rounded-xl border bg-white px-2 text-xs">
                     {["01","02","03","04","05","06","07","08","09","10","11","12"].map(h => <option key={h} value={h}>{h}</option>)}
                   </select>
-                  <select name="openingMinute" value={formData.openingMinute} onChange={handleChange} className="h-12 rounded-xl border bg-white px-3 text-xs">
+                  <select name="openingMinute" value={formData.openingMinute} onChange={handleChange} className="h-12 flex-1 min-w-0 rounded-xl border bg-white px-2 text-xs">
                     {["00","15","30","45"].map(m => <option key={m} value={m}>{m}</option>)}
                   </select>
-                  <select name="openingAmPm" value={formData.openingAmPm} onChange={handleChange} className="h-12 rounded-xl border bg-white px-3 text-xs font-bold text-orange-600">
+                  <select name="openingAmPm" value={formData.openingAmPm} onChange={handleChange} className="h-12 flex-1 min-w-0 rounded-xl border bg-white px-2 text-xs font-bold text-orange-600">
                     <option value="AM">AM</option>
                     <option value="PM">PM</option>
                   </select>
@@ -277,13 +277,13 @@ const handleSubmit = async (e) => {
               <div>
                 <label className="mb-2 block text-xs font-bold text-[#0b2940]">Closing Time</label>
                 <div className="flex gap-2">
-                  <select name="closingHour" value={formData.closingHour} onChange={handleChange} className="h-12 rounded-xl border bg-white px-3 text-xs">
+                  <select name="closingHour" value={formData.closingHour} onChange={handleChange} className="h-12 flex-1 min-w-0 rounded-xl border bg-white px-2 text-xs">
                     {["01","02","03","04","05","06","07","08","09","10","11","12"].map(h => <option key={h} value={h}>{h}</option>)}
                   </select>
-                  <select name="closingMinute" value={formData.closingMinute} onChange={handleChange} className="h-12 rounded-xl border bg-white px-3 text-xs">
+                  <select name="closingMinute" value={formData.closingMinute} onChange={handleChange} className="h-12 flex-1 min-w-0 rounded-xl border bg-white px-2 text-xs">
                     {["00","15","30","45"].map(m => <option key={m} value={m}>{m}</option>)}
                   </select>
-                  <select name="closingAmPm" value={formData.closingAmPm} onChange={handleChange} className="h-12 rounded-xl border bg-white px-3 text-xs font-bold text-orange-600">
+                  <select name="closingAmPm" value={formData.closingAmPm} onChange={handleChange} className="h-12 flex-1 min-w-0 rounded-xl border bg-white px-2 text-xs font-bold text-orange-600">
                     <option value="AM">AM</option>
                     <option value="PM">PM</option>
                   </select>
@@ -326,8 +326,8 @@ const handleSubmit = async (e) => {
 
         {/* Location Search Modal */}
         {locationPanelOpen && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4">
-            <div className="w-full max-w-md bg-white rounded-t-3xl p-5 shadow-2xl max-h-[80vh] flex flex-col">
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+            <div className="w-full max-w-md bg-white rounded-3xl p-5 shadow-2xl max-h-[80vh] flex flex-col">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="font-bold text-[#0b2940]">Search Area</h3>
                 <button type="button" onClick={() => setLocationPanelOpen(false)}><X size={18} /></button>

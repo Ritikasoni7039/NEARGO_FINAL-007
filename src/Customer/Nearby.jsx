@@ -333,23 +333,23 @@ const Nearby = () => {
             {query && <button onClick={() => setQuery("")} aria-label="Clear search"><X size={18} className="text-[#7c8583]" /></button>}
             <button onClick={() => setShowFilters(!showFilters)} className={`flex items-center gap-2 border-l border-[#e8e6df] pl-3 text-sm font-bold ${showFilters ? "text-[#b75d17]" : "text-[#5e6d75]"}`}><SlidersHorizontal size={18} /><span className="hidden sm:inline">Filters</span></button>
           </div>
-          {showFilters && <div className="flex flex-wrap gap-2 border-t border-[#ece9e1] px-3 pb-2 pt-3">{availableCategories.map((item) => <button key={item} onClick={() => setCategory(item)} className={`border px-3 py-1.5 text-xs font-bold ${category === item ? "border-[#f28a2e] bg-[#fff2e7] text-[#b75d17]" : "border-[#d7dcd6] text-[#7c8583]"}`}>{item}</button>)}</div>}
+          {showFilters && <div className="flex flex-wrap gap-2 border-t border-[#ece9e1] px-3 pb-2 pt-3 max-h-48 overflow-y-auto">{availableCategories.map((item) => <button key={item} onClick={() => setCategory(item)} className={`border px-3 py-1.5 text-xs font-bold ${category === item ? "border-[#f28a2e] bg-[#fff2e7] text-[#b75d17]" : "border-[#d7dcd6] text-[#7c8583]"}`}>{item}</button>)}</div>}
         </section>
 
-        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(370px,0.85fr)]">
-          <section className="relative min-h-[470px] overflow-hidden border border-[#d8e0d9] bg-[#dfe9df] shadow-[0_8px_24px_rgba(25,50,55,0.06)] sm:min-h-[610px]">
+        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_minmax(340px,0.85fr)]">
+          <section className="relative min-h-[380px] overflow-hidden border border-[#d8e0d9] bg-[#dfe9df] shadow-[0_8px_24px_rgba(25,50,55,0.06)] sm:min-h-[610px]">
             {/* Top Overlay Controls */}
-            <div className="absolute left-4 top-4 z-[400] flex items-center gap-2 bg-white/95 px-3 py-2 text-xs font-bold shadow-md backdrop-blur sm:left-5 sm:top-5">
-              <Navigation size={15} className="text-[#f28a2e]" /> {location.city} · {selectedRadius}
+            <div className="absolute left-2.5 top-2.5 z-[400] flex items-center gap-1.5 bg-white/95 px-2.5 py-1.5 text-[11px] font-bold shadow-md backdrop-blur sm:left-5 sm:top-5 sm:gap-2 sm:px-3 sm:py-2 sm:text-xs">
+              <Navigation size={14} className="text-[#f28a2e]" /> {location.city} · {selectedRadius}
             </div>
 
-            <div className="absolute right-4 top-4 z-[400] flex overflow-hidden border border-[#d7dcd6] bg-white/95 shadow-md backdrop-blur sm:right-5 sm:top-5">
+            <div className="absolute right-2.5 top-2.5 z-[400] flex overflow-hidden border border-[#d7dcd6] bg-white/95 shadow-md backdrop-blur sm:right-5 sm:top-5">
               {["Map", "Satellite"].map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   onClick={() => setMapMode(mode)}
-                  className={`px-3.5 py-1.5 text-xs font-bold transition ${
+                  className={`px-2.5 py-1 text-[11px] font-bold transition sm:px-3.5 sm:py-1.5 sm:text-xs ${
                     mapMode === mode ? "bg-[#113b52] text-white" : "text-[#7c8583] hover:bg-gray-100"
                   }`}
                 >
@@ -359,13 +359,13 @@ const Nearby = () => {
             </div>
 
             {/* Real Interactive Leaflet Map */}
-            <div className="h-full w-full min-h-[500px] sm:min-h-[610px]">
+            <div className="h-full w-full min-h-[380px] sm:min-h-[610px]">
               <MapContainer
                 center={[coords.lat || 24.0722, coords.lng || 75.0683]}
                 zoom={14}
                 scrollWheelZoom={false}
                 className="h-full w-full"
-                style={{ height: "100%", minHeight: "500px", width: "100%" }}
+                style={{ height: "100%", minHeight: "380px", width: "100%" }}
               >
                 <MapRecenter center={[coords.lat || 24.0722, coords.lng || 75.0683]} />
                 {mapMode === "Satellite" ? (
@@ -398,7 +398,7 @@ const Nearby = () => {
                       }}
                     >
                       <Popup className="uber-shop-popup">
-                        <div className="p-1 min-w-[230px] max-w-[260px] text-left font-sans">
+                        <div className="p-1 min-w-[200px] max-w-[250px] w-full text-left font-sans">
                           {s.shop_image ? (
                             <div className="relative mb-2.5 overflow-hidden rounded-xl">
                               <img

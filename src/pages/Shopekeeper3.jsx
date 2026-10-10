@@ -123,37 +123,69 @@ const handleCompleteRegistration = async (e) => {
       if (!savedShopData) throw new Error("Shop registration data missing. Please start again.");
 
       const cleanEmail = savedShopData.email.trim().toLowerCase();
-
-      // OTP verify hone ke baad user already logged in hai — us session ko use karo
-      const { data: sessionData } = await supabase.auth.getSession();
-      
-      if (!sessionData?.session?.user?.id) {
-        throw new Error("Session expired. Please go back and verify OTP again.");
-      }
-
-      const userId = sessionData.session.user.id;
-
       const specificRole = savedShopData.shopType === "temporary" ? "shopkeeper_temporary" : "shopkeeper_permanent";
 
-      // Password set karo via updateUser (user already authenticated hai OTP se)
-      const { error: updateErr } = await supabase.auth.updateUser({
-        password: password,
-        data: {
-          full_name: savedShopData.ownerName || "",
-          phone: savedShopData.mobile || "",
-          username: username.trim(),
-          role: specificRole
-        }
-      });
+      // Check if user is logged in from OTP session
+      const { data: sessionData } = await supabase.auth.getSession();
+      let userId = sessionData?.session?.user?.id;
 
-      if (updateErr) {
-        // "New password should be different" = password already set hai, proceed karo
-        if (updateErr.message?.toLowerCase().includes("same") || 
-            updateErr.message?.toLowerCase().includes("different")) {
-          console.warn("Password already set, proceeding...");
+      if (!userId) {
+        // Fallback: Create account directly via signUp (for dev bypass or expired session)
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password: password,
+          options: {
+            data: {
+              full_name: savedShopData.ownerName || username.trim(),
+              phone: savedShopData.mobile || "",
+              username: username.trim(),
+              role: specificRole,
+              shop_name: savedShopData.shopName || "",
+            },
+          },
+        });
+
+        if (signUpError) {
+          if (signUpError.message?.toLowerCase().includes("already registered")) {
+            // Attempt to sign in with password to obtain session
+            const { data: loginData, error: loginErr } = await supabase.auth.signInWithPassword({
+              email: cleanEmail,
+              password: password,
+            });
+            if (loginErr) {
+              throw new Error("This email is already registered. Please login on the Shopkeeper Login page.");
+            }
+            userId = loginData?.user?.id;
+          } else {
+            throw signUpError;
+          }
         } else {
-          throw updateErr;
+          userId = signUpData?.user?.id;
         }
+      } else {
+        // Session exists: update password on existing account
+        const { error: updateErr } = await supabase.auth.updateUser({
+          password: password,
+          data: {
+            full_name: savedShopData.ownerName || "",
+            phone: savedShopData.mobile || "",
+            username: username.trim(),
+            role: specificRole,
+          },
+        });
+
+        if (updateErr) {
+          if (
+            !updateErr.message?.toLowerCase().includes("same") &&
+            !updateErr.message?.toLowerCase().includes("different")
+          ) {
+            throw updateErr;
+          }
+        }
+      }
+
+      if (!userId) {
+        throw new Error("Could not determine user account. Please try again.");
       }
 
       // Profile picture upload (agar file hai toh)
@@ -186,49 +218,78 @@ const handleCompleteRegistration = async (e) => {
         throw profileErr;
       }
 
-      // 2. Uske baad shops table mein insert/update karo
-      const shopPayload = {
-        owner_id: userId,
-        shop_name: savedShopData.shopName || "My Shop",
-        category: savedShopData.category || "General Store",
-        shop_type: savedShopData.shopType || "permanent",
-        sub_type: savedShopData.subType || null,
-        address: savedShopData.address || savedShopData.approximateArea || "Mandsaur",
-        landmark: savedShopData.landmark || "",
-        city: savedShopData.city || "Mandsaur",
-        pincode: savedShopData.pincode || "458001",
-        latitude: savedShopData.latitude || 24.0722,
-        longitude: savedShopData.longitude || 75.0683,
-        shop_image: savedShopData.shopImage || avatarUrl || "https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=800&auto=format&fit=crop&q=80",
-        opening_time: savedShopData.openingTime || "09:00 AM",
-        closing_time: savedShopData.closingTime || "09:00 PM",
-        temporary_duration: savedShopData.temporaryDuration || null,
-        description: savedShopData.description || null,
-        is_live: true,
-      };
-
+      // 2. Insert into seller_profiles and seller_locations
       let finalShopId = null;
-      const { data: existingShop } = await supabase
-        .from("shops")
-        .select("id")
-        .eq("owner_id", userId)
-        .maybeSingle();
+      try {
+        const sellerPayload = {
+          user_id: userId,
+          seller_type: savedShopData.shopType || "permanent",
+          owner_name: savedShopData.ownerName || username.trim(),
+          business_name: savedShopData.shopName || "My Shop",
+          category: savedShopData.category || "General Store",
+          email: cleanEmail,
+          phone: savedShopData.mobile || "",
+          photo_url: savedShopData.shopImage || avatarUrl || null,
+        };
 
-      if (existingShop?.id) {
-        const { error: updateShopErr } = await supabase
-          .from("shops")
-          .update(shopPayload)
-          .eq("id", existingShop.id);
-        if (updateShopErr) throw updateShopErr;
-        finalShopId = existingShop.id;
-      } else {
-        const { data: newShop, error: insertShopErr } = await supabase
-          .from("shops")
-          .insert([shopPayload])
+        const { data: sellerRow } = await supabase
+          .from("seller_profiles")
+          .upsert([sellerPayload], { onConflict: "user_id" })
           .select("id")
-          .single();
-        if (insertShopErr) throw insertShopErr;
-        finalShopId = newShop?.id;
+          .maybeSingle();
+
+        if (sellerRow?.id) {
+          finalShopId = sellerRow.id;
+          await supabase.from("seller_locations").upsert([
+            {
+              seller_id: sellerRow.id,
+              shop_address: savedShopData.address || savedShopData.landmark || "Mandsaur",
+              base_area: savedShopData.currentArea || "Mandsaur",
+              latitude: savedShopData.latitude || 24.0722,
+              longitude: savedShopData.longitude || 75.0683,
+              opening_time: "09:00:00",
+              closing_time: "21:00:00",
+              is_here_now: true,
+            },
+          ]);
+        }
+      } catch (e) {
+        console.warn("seller_profiles notice:", e);
+      }
+
+      // Also sync to shops table if available
+      try {
+        const shopPayload = {
+          owner_id: userId,
+          shop_name: savedShopData.shopName || "My Shop",
+          category: savedShopData.category || "General Store",
+          shop_type: savedShopData.shopType || "permanent",
+          sub_type: savedShopData.subType || null,
+          address: savedShopData.address || savedShopData.approximateArea || "Mandsaur",
+          landmark: savedShopData.landmark || "",
+          city: savedShopData.city || "Mandsaur",
+          pincode: savedShopData.pincode || "458001",
+          latitude: savedShopData.latitude || 24.0722,
+          longitude: savedShopData.longitude || 75.0683,
+          shop_image: savedShopData.shopImage || avatarUrl || "https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=800&auto=format&fit=crop&q=80",
+          opening_time: savedShopData.openingTime || "09:00 AM",
+          closing_time: savedShopData.closingTime || "09:00 PM",
+          temporary_duration: savedShopData.temporaryDuration || null,
+          description: savedShopData.description || null,
+          is_live: true,
+        };
+
+        const { data: newShop } = await supabase
+          .from("shops")
+          .upsert([shopPayload], { onConflict: "owner_id" })
+          .select("id")
+          .maybeSingle();
+
+        if (newShop?.id && !finalShopId) {
+          finalShopId = newShop.id;
+        }
+      } catch (e) {
+        console.warn("shops table sync notice:", e);
       }
 
       // 3. Cache active shop in localStorage with real shop ID for immediate inventory sync
@@ -254,6 +315,8 @@ const handleCompleteRegistration = async (e) => {
       // Session storage clear karo
       sessionStorage.removeItem("nearGoShopkeeperData");
       sessionStorage.removeItem("nearGoShopkeeperVerified");
+      sessionStorage.removeItem("nearGoShopkeeperBypass");
+      sessionStorage.removeItem("nearGoOtpWarning");
 
       // Dashboard par redirect karo
       navigate("/shopkeeperdashboard");

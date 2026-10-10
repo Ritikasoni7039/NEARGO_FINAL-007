@@ -57,23 +57,48 @@ const CustomerSignup2 = () => {
 
       const cleanEmail = signupData.email.trim().toLowerCase();
 
-      // User already exists and is logged in after OTP verification in Step 2
-      // So we use updateUser() to SET the password on the existing account
-      const { data: updateData, error: updateError } = await supabase.auth.updateUser({
-        password: password,
-        data: {
-          full_name: signupData.name || "",
-          phone: signupData.phone || "",
-          role: "customer"
+      // Check if user has an active session from OTP verification
+      const { data: sessionData } = await supabase.auth.getSession();
+      let userId = sessionData?.session?.user?.id;
+
+      if (!userId) {
+        // Fallback: Create account directly via signUp
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email: cleanEmail,
+          password: password,
+          options: {
+            data: {
+              full_name: signupData.name || "",
+              phone: signupData.phone || "",
+              role: "customer",
+            },
+          },
+        });
+
+        if (signUpError) {
+          if (signUpError.message?.toLowerCase().includes("already registered")) {
+            throw new Error("This email is already registered. Please login directly.");
+          }
+          throw signUpError;
         }
-      });
+        userId = signUpData?.user?.id;
+      } else {
+        // Session exists: update password on existing account
+        const { data: updateData, error: updateError } = await supabase.auth.updateUser({
+          password: password,
+          data: {
+            full_name: signupData.name || "",
+            phone: signupData.phone || "",
+            role: "customer",
+          },
+        });
 
-      if (updateError) throw updateError;
-
-      const userId = updateData?.user?.id;
+        if (updateError) throw updateError;
+        userId = updateData?.user?.id || userId;
+      }
 
       if (userId) {
-        // 2. Direct Profile Table Insert
+        // 2. Direct Profile Table Upsert
         const { error: profileError } = await supabase.from("profiles").upsert([
           {
             id: userId,
@@ -92,6 +117,7 @@ const CustomerSignup2 = () => {
       // Cleanup
       sessionStorage.removeItem("nearGoSignupData");
       sessionStorage.removeItem("nearGoEmailVerified");
+      sessionStorage.removeItem("nearGoDevBypass");
 
       // Redirect to Location
       navigate("/Location");

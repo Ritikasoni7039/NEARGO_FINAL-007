@@ -71,7 +71,7 @@ const HomePage = () => {
               Around you, right now
             </p>
 
-            <h1 className="mt-5 max-w-2xl text-[clamp(3.1rem,7vw,6.5rem)] font-semibold leading-[0.91] tracking-[-0.08em]">
+            <h1 className="mt-5 max-w-2xl text-[clamp(2.3rem,6.5vw,6.5rem)] font-semibold leading-[0.93] tracking-[-0.06em]">
               Find it nearby.
               <br />
               <span className="text-[#f28a2e]">Reserve it locally.</span>

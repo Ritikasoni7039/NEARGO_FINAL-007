@@ -25,6 +25,8 @@ const CustomerSignup1 = () => {
   const signupData = savedSignupData ? JSON.parse(savedSignupData) : null;
   const email = signupData?.email ? signupData.email.trim().toLowerCase() : "";
 
+  const [statusNotice, setStatusNotice] = useState("");
+
   // 1. Send OTP code directly (No Link)
   const sendOtpCode = async () => {
     if (!email) {
@@ -32,9 +34,10 @@ const CustomerSignup1 = () => {
       return;
     }
     setError("");
+    setStatusNotice("");
 
     try {
-      // Supabase se OTP request bhej rahe hain (Ye email par code bhejega agar template me Token set hai)
+      // Supabase se OTP request bhej rahe hain
       const { error: authError } = await supabase.auth.signInWithOtp({
         email: email,
         options: {
@@ -44,9 +47,13 @@ const CustomerSignup1 = () => {
 
       if (authError) {
         console.warn("OTP send warning:", authError.message);
+        setError(authError.message || "Failed to send verification code.");
+      } else {
+        setStatusNotice("Verification OTP sent! Please check your Inbox and Spam/Junk folder.");
       }
     } catch (err) {
       console.error("Error sending OTP:", err);
+      setError("Failed to send verification code. Please check your email and retry.");
     }
   };
 
@@ -70,9 +77,9 @@ const CustomerSignup1 = () => {
     setError("");
   };
 
-  // 2. Verify the typed OTP code
+  // 2. Verify the typed OTP code with Supabase
   const handleVerify = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     const cleanOtp = otp.trim();
 
     if (cleanOtp.length !== 6) {
@@ -92,7 +99,7 @@ const CustomerSignup1 = () => {
       });
 
       if (verifyError) {
-        throw new Error("Invalid or expired OTP code.");
+        throw new Error(verifyError.message || "Invalid or expired OTP code.");
       }
 
       setVerified(true);
@@ -102,7 +109,7 @@ const CustomerSignup1 = () => {
         navigate("/CustomerSignup2");
       }, 600);
     } catch (err) {
-      setError(err.message || "Invalid OTP code. Please check and re-enter.");
+      setError(err.message || "Invalid OTP code. Please enter the valid code received on your email.");
     } finally {
       setLoading(false);
     }
@@ -201,6 +208,12 @@ const CustomerSignup1 = () => {
             <p className="font-bold text-[#0b2940] mt-1 break-all">
               {email || "your email"}
             </p>
+
+            {statusNotice && (
+              <div className="mt-4 p-3 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 text-xs leading-5">
+                <p className="font-semibold">{statusNotice}</p>
+              </div>
+            )}
           </div>
 
           <form onSubmit={handleVerify}>
@@ -218,7 +231,7 @@ const CustomerSignup1 = () => {
               maxLength={6}
               className={`w-full h-16 rounded-2xl border ${
                 error ? "border-red-400 bg-red-50" : "border-[#D7E1E9] bg-[#f8fafb]"
-              } text-center tracking-[12px] text-2xl font-bold text-[#0b2940] outline-none focus:border-[#16aaa8] focus:ring-4 focus:ring-[#16aaa8]/10 transition`}
+              } text-center tracking-[6px] sm:tracking-[12px] text-xl sm:text-2xl font-bold text-[#0b2940] outline-none focus:border-[#16aaa8] focus:ring-4 focus:ring-[#16aaa8]/10 transition`}
             />
 
             {error && (

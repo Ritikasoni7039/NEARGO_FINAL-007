@@ -282,7 +282,7 @@ const CustomerDashboard = () => {
     <main className="min-h-screen overflow-x-hidden bg-[#f7f7f4] pb-[calc(5.9rem+env(safe-area-inset-bottom))] text-[#172d3d]">
       <section className="bg-[#113b52] text-white">
         <div className="mx-auto max-w-7xl px-5 pb-10 pt-5 sm:px-8 lg:px-12 lg:pb-14">
-          <header className="flex items-center justify-between gap-4">
+          <header className="flex items-center justify-between gap-2 sm:gap-4">
             <button
               onClick={() => navigate("/CustomerDashboard")}
               className="text-left"
@@ -301,26 +301,26 @@ const CustomerDashboard = () => {
 
             <button
               onClick={() => setLocationOpen(true)}
-              className="flex max-w-[170px] items-center gap-2 border-b border-white/35 pb-1.5 text-left text-sm font-semibold sm:max-w-none"
+              className="flex max-w-[150px] sm:max-w-none items-center gap-1.5 sm:gap-2 border-b border-white/35 pb-1.5 text-left text-xs sm:text-sm font-semibold"
             >
-              <MapPin size={17} className="shrink-0 text-[#f28a2e]" />
+              <MapPin size={16} className="shrink-0 text-[#f28a2e]" />
               <span className="truncate">{location}</span>
               <span className="text-white/55">· {radius}</span>
-              <ChevronDown size={16} className="shrink-0 text-white/65" />
+              <ChevronDown size={15} className="shrink-0 text-white/65" />
             </button>
           </header>
 
-          <div className="mt-14 grid gap-8 lg:grid-cols-[1fr_390px] lg:items-end">
+          <div className="mt-10 sm:mt-14 grid gap-8 lg:grid-cols-[1fr_390px] lg:items-end">
             <div>
-              <p className="mb-4 text-xs font-bold uppercase tracking-[0.24em] text-[#f5b77b]">
+              <p className="mb-3 sm:mb-4 text-xs font-bold uppercase tracking-[0.24em] text-[#f5b77b]">
                 Around you, right now
               </p>
-              <h1 className="max-w-2xl text-[clamp(2.7rem,7vw,5.8rem)] font-semibold leading-[0.94] tracking-[-0.06em]">
+              <h1 className="max-w-2xl text-[clamp(2.1rem,6.5vw,5.8rem)] font-semibold leading-[0.95] tracking-[-0.05em]">
                 Find it nearby.
                 <br />
                 <span className="text-[#f28a2e]">Go with confidence.</span>
               </h1>
-              <p className="mt-6 max-w-lg text-base leading-7 text-white/70 sm:text-lg">
+              <p className="mt-4 sm:mt-6 max-w-lg text-sm sm:text-base leading-6 sm:leading-7 text-white/70">
                 Compare real local stock, prices and distance before you leave home.
               </p>
             </div>
@@ -666,7 +666,7 @@ const CustomerDashboard = () => {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", damping: 26 }}
-              className="fixed bottom-0 left-0 right-0 z-[90] bg-[#fffdfa] p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-2xl sm:bottom-5 sm:left-1/2 sm:max-w-md sm:-translate-x-1/2 sm:p-7"
+              className="fixed bottom-0 left-0 right-0 z-[90] max-h-[88vh] overflow-y-auto bg-[#fffdfa] p-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-2xl sm:bottom-5 sm:left-1/2 sm:max-w-md sm:-translate-x-1/2 sm:p-7"
             >
               <div className="mx-auto mb-6 h-1 w-12 bg-[#d8dcd7] sm:hidden" />
               <div className="flex items-start justify-between gap-4">
